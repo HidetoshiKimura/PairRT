@@ -17,6 +17,18 @@ def sample_arf2() -> Path:
     return SAMPLE_ARF2
 
 
+def grp(rows) -> pd.DataFrame:
+    """(MasterAlignmentID, c, db, rt) から、ペア評価にかける 1 グループ分の DataFrame を作る。"""
+    return pd.DataFrame(
+        [
+            {"MasterAlignmentID": i, "Ontology": "PC", "base_ontology": "PC",
+             "c_s_total": c, "db_s_total": db, "rt": rt,
+             "inclusion": True, "curation": True, "exclusion_reason": ""}
+            for i, c, db, rt in rows
+        ]
+    ).astype({"c_s_total": "Int64", "db_s_total": "Int64"})
+
+
 def spots_df(rows) -> pd.DataFrame:
     """(MasterAlignmentID, name, Ontology) から load_spots と同じ形の DataFrame を作る。"""
     return pd.DataFrame(
