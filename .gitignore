@@ -1,0 +1,20 @@
+# uv が作る Python 環境(いつでも作り直せる)
+.venv/
+
+# Python / pytest のキャッシュ
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# ビルド成果物
+build/
+dist/
+*.egg-info/
+
+# rtcurate の出力(データ由来のファイルは記録しない)
+*_rtcurated.tsv
+*_rt_excluded.tsv
+
+# OneDrive / Windows が作るファイル
+desktop.ini
+Thumbs.db
