@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rtcurate"
+version = "0.1.0"
+description = "RT順序による MS-DIAL5 脂質アノテーションのキュレーション CLI"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas",
+    "numpy",
+    "msdialio @ git+https://github.com/systemsomicslab/msdialio.git@6d4803d062e5eabcb1706606662681a0a4f65aa1",
+]
+
+[project.scripts]
+rtcurate = "rtcurate.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rtcurate"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
