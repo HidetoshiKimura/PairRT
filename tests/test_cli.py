@@ -55,3 +55,11 @@ def test_keep_and_exclude_options(sample_arf2, tmp_path):
     da, db = read(a), read(b)
     assert db["inclusion"].sum() > da["inclusion"].sum()
     assert not db.loc[db["base_ontology"] == "CL", "pair_evaluated"].any()
+
+
+def test_unwritable_output_returns_2(sample_arf2, tmp_path, capsys):
+    # 既存フォルダを出力先にすると書き込めない(Excel で開いたままの TSV と同じく OSError になる)
+    out = tmp_path / "is_a_dir"
+    out.mkdir()
+    assert main([str(sample_arf2), "-o", str(out)]) == 2
+    assert str(out) in capsys.readouterr().err

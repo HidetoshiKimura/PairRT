@@ -67,15 +67,27 @@ def main(argv: list[str] | None = None) -> int:
                  args.exclude_ontology)
 
     output = args.output or src.with_name(f"{src.stem}_rtcurated.tsv")
-    write_main(result, output)
+    if not _try_write(write_main, result, output):
+        return 2
     print(summary(result))
     print(f"出力: {output}")
 
     if args.write_excluded:
         excluded = output.with_name(f"{src.stem}_rt_excluded.tsv")
-        write_excluded(result, excluded)
+        if not _try_write(write_excluded, result, excluded):
+            return 2
         print(f"除外一覧: {excluded}")
     return 0
+
+
+def _try_write(writer, df, path: Path) -> bool:
+    try:
+        writer(df, path)
+    except OSError as e:
+        print(f"エラー: {path} に書き込めませんでした(Excel などで開いていませんか): {e}",
+              file=sys.stderr)
+        return False
+    return True
 
 
 if __name__ == "__main__":
