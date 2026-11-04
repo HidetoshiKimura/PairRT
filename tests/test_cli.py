@@ -1,5 +1,7 @@
 import pandas as pd
+import pytest
 
+from conftest import spots_df
 from rtcurate.cli import main
 from rtcurate.tags import read_tags
 
@@ -138,3 +140,68 @@ def test_other_shells_keep_encoding(monkeypatch):
     monkeypatch.delenv("MSYSTEM", raising=False)
     _utf8_for_git_bash()
     assert out.encoding == "cp932"
+
+
+# 各フィルタ / Ontology 補正に 1 行ずつ当たるデータ(ID, 名前, Ontology)
+WIRING_ROWS = [
+    (1, "low score: PC 30:0", "PC"),
+    (2, "no MS2: PC 30:0", "PC"),
+    (3, "w/o MS2: PC 30:0", "PC"),
+    (4, "RIKEN N-VS1 ID-1", "PC"),
+    (5, "PC 30:0", ""),
+    (6, "OxPC 34:2;O2", "OxPC"),
+    (7, "PE p-36:2", "PE"),
+    (8, "PC O-34:1", "EtherPC"),
+]
+
+
+def run_wiring(monkeypatch, tmp_path, *options) -> pd.DataFrame:
+    """.arf2 の読み込みを WIRING_ROWS に差し替えて実行し、TSV を ID で引ける形で返す。"""
+    monkeypatch.setattr("rtcurate.cli.load_spots", lambda _: spots_df(WIRING_ROWS))
+    src = tmp_path / "dummy.arf2"
+    src.write_bytes(b"")
+    assert main([str(src), "-o", str(tmp_path), "--tsv", *options]) == 0
+    return read(tmp_path / "dummy_rtcurated.tsv").set_index("MasterAlignmentID")
+
+
+@pytest.mark.parametrize("option,row", [
+    ("--keep-low-score", 1),
+    ("--keep-no-ms2", 2),
+    ("--keep-wo-ms2", 3),
+    ("--keep-riken", 4),
+    ("--keep-ontology-null", 5),
+])
+def test_keep_option_disables_only_its_filter(monkeypatch, tmp_path, option, row):
+    df = run_wiring(monkeypatch, tmp_path, option)
+    filtered = {1, 2, 3, 4, 5}
+    kept = set(df.index[df["inclusion"]]) & filtered
+    assert kept == {row}  # 指定したフィルタの行だけが残る
+
+
+def test_default_applies_all_filters(monkeypatch, tmp_path):
+    df = run_wiring(monkeypatch, tmp_path)
+    assert not df.loc[[1, 2, 3, 4, 5], "inclusion"].any()
+    assert df.loc[6, "Ontology"] == "OxPC;O2"  # 酸素数タグは既定で付く
+    assert df.loc[7, "Ontology"] == "PE" and df.loc[8, "Ontology"] == "EtherPC"
+
+
+def test_all_keep_options_together(monkeypatch, tmp_path):
+    df = run_wiring(monkeypatch, tmp_path, "--keep-low-score", "--keep-no-ms2", "--keep-wo-ms2",
+                    "--keep-riken", "--keep-ontology-null")
+    assert df["inclusion"].all()
+
+
+def test_ontology_options(monkeypatch, tmp_path):
+    df = run_wiring(monkeypatch, tmp_path, "--no-oxygen-tag", "--p-tag", "--o-tag")
+    assert df.loc[6, "Ontology"] == "OxPC"
+    assert df.loc[7, "Ontology"] == "p-PE"
+    assert df.loc[8, "Ontology"] == "EtherPCO-"
+
+
+def test_sample_with_all_filters_off(sample_arf2, tmp_path):
+    # 実データで前処理フィルタをすべて外しても最後まで動き、全スポットが残る
+    assert main([str(sample_arf2), "-o", str(tmp_path), "--tsv", "--keep-low-score", "--keep-no-ms2",
+                 "--keep-wo-ms2", "--keep-riken", "--keep-ontology-null"]) == 0
+    df = read(tmp_path / f"{STEM}_rtcurated.tsv")
+    assert len(df) == 7955 and df["inclusion"].all()
+    assert df["pair_evaluated"].sum() > 1554  # 既定(フィルタあり)のペア評価対象より多い
