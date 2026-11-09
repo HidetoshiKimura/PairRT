@@ -4,8 +4,6 @@ MS-DIAL5 の AlignmentResult(`.arf2`)を読み、同じ脂質クラス(Ontology)
 「炭素数・二重結合数から予想される溶出順」と実際の RT が矛盾するアノテーションに印を付ける CLI。
 判定は RT 順序だけで行う。`RerativeRT_auto_checher4.4` の前処理とペア評価を移植したもの。
 
-設計: [docs/2026-10-22-rtcurate-design.md](docs/2026-10-22-rtcurate-design.md)
-
 ## セットアップ
 
 ```

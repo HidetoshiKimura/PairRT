@@ -15,6 +15,9 @@ dist/
 *_rtcurated.tsv
 *_rt_excluded.tsv
 
+# 設計書と実装計画(研究データの情報を含むので公開しない。手元にだけ置く)
+docs/
+
 # OneDrive / Windows が作るファイル
 desktop.ini
 Thumbs.db
