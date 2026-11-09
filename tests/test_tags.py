@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -22,11 +23,9 @@ EMPTY_XML = (
     "</PeakSpotTags>"
 )
 
-# MS-DIAL 5.5 が実際に書いたタグ入りのファイル(手作業の Confirmed / Misannotation)
-REAL_TAGGED = Path(
-    r"C:/path/to/POS"
-    r"\AlignmentResult_2026_10_23_12_34_53_tags.xml"
-)
+# MS-DIAL 5.5 が実際に書いたタグ入りのファイル(ID 71 に Misannotation、ID 20 に Confirmed)。
+# 手元のファイルのパスを環境変数 RTCURATE_TAGGED_XML で渡す。無ければこのテストはスキップする。
+REAL_TAGGED = Path(os.environ.get("RTCURATE_TAGGED_XML", ""))
 
 
 def result_df(rows) -> pd.DataFrame:
@@ -40,8 +39,8 @@ def test_render_empty_matches_msdial_bytes():
 
 
 def test_read_render_roundtrip_of_real_file(tmp_path):
-    if not REAL_TAGGED.exists():
-        pytest.skip(f"タグ入りの実ファイルがありません: {REAL_TAGGED}")
+    if not os.environ.get("RTCURATE_TAGGED_XML") or not REAL_TAGGED.is_file():
+        pytest.skip("環境変数 RTCURATE_TAGGED_XML でタグ入りの実ファイルを指定してください")
     original = REAL_TAGGED.read_bytes()
     tf = read_tags(REAL_TAGGED)
     assert tf.peaks[71] == [3] and tf.peaks[20] == [1]
