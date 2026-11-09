@@ -1,6 +1,7 @@
 import pytest
 
 from conftest import spots_df
+from rtcurate.pair_eval import run
 from rtcurate.preprocess import FilterOptions, calc_c_db, is_null_ontology, oxygen_tag, preprocess
 
 
@@ -69,11 +70,45 @@ def test_no_oxygen_tag_option():
     assert out["Ontology"].iloc[0] == "OxPC"
 
 
-def test_p_and_o_tags():
-    df = spots_df([(1, "PE P-36:2|PE P-18:0_18:2", "EtherPE"), (2, "PC O-34:1", "EtherPC")])
-    out = preprocess(df, FilterOptions(p_tag=True, o_tag=True)).set_index("MasterAlignmentID")
-    assert out.loc[1, "Ontology"] == "EtherPE"  # "p-" は小文字のみ一致(4.4 と同じ)
-    assert out.loc[2, "Ontology"] == "EtherPCO-"
+ETHER_ROWS = [
+    (1, "PE P-36:2|PE P-18:0_18:2", "EtherPE"),
+    (2, "PC O-34:1", "EtherPC"),
+    (3, "OxPC O-34:2;O2|OxPC O-16:0_18:2;O2", "EtherOxPC"),
+    (4, "SMGDG 26:5", "EtherSMGDG"),                         # P- も O- も無い
+    (5, "AHexCer 39:0;O3|AHexCer (O-14:0)25:0;O3", "AHexCer"),  # Ether 系ではない
+    (6, "LPE P-16:0", "EtherLPE"),
+]
+
+
+def test_ether_split_by_default():
+    out = preprocess(spots_df(ETHER_ROWS), FilterOptions()).set_index("MasterAlignmentID")
+    assert out["Ontology"].to_dict() == {
+        1: "EtherPE_P", 2: "EtherPC_O", 3: "EtherOxPC_O;O2", 4: "EtherSMGDG",
+        5: "AHexCer;O3", 6: "EtherLPE_P",
+    }
+    assert out.loc[1, "base_ontology"] == "EtherPE"
+
+
+def test_ether_split_can_be_disabled():
+    out = preprocess(spots_df(ETHER_ROWS), FilterOptions(ether_split=False))
+    assert list(out["Ontology"]) == ["EtherPE", "EtherPC", "EtherOxPC;O2", "EtherSMGDG",
+                                     "AHexCer;O3", "EtherLPE"]
+
+
+def test_p_and_o_are_evaluated_separately():
+    # O- だけなら正しい順。P- の 2 件は炭素が少ないのに遅く出るので、混ぜると O- と矛盾する
+    rows = [(i, f"PE O-{34 + 2 * i}:1", "EtherPE") for i in range(5)]
+    rows += [(10, "PE P-30:1", "EtherPE"), (11, "PE P-32:1", "EtherPE")]
+    rts = [5.0, 6.0, 7.0, 8.0, 9.0, 9.5, 9.8]
+
+    def excluded(opts):
+        df = preprocess(spots_df(rows), opts)
+        df["rt"] = rts
+        out = run(df)
+        return set(out.loc[out["exclusion_reason"] == "rt_order", "MasterAlignmentID"])
+
+    assert excluded(FilterOptions()) == set()
+    assert excluded(FilterOptions(ether_split=False)) == {10, 11}
 
 
 def test_null_ontology_not_tagged():

@@ -150,7 +150,7 @@ WIRING_ROWS = [
     (4, "RIKEN N-VS1 ID-1", "PC"),
     (5, "PC 30:0", ""),
     (6, "OxPC 34:2;O2", "OxPC"),
-    (7, "PE p-36:2", "PE"),
+    (7, "PE P-36:2", "EtherPE"),
     (8, "PC O-34:1", "EtherPC"),
 ]
 
@@ -182,7 +182,7 @@ def test_default_applies_all_filters(monkeypatch, tmp_path):
     df = run_wiring(monkeypatch, tmp_path)
     assert not df.loc[[1, 2, 3, 4, 5], "inclusion"].any()
     assert df.loc[6, "Ontology"] == "OxPC;O2"  # 酸素数タグは既定で付く
-    assert df.loc[7, "Ontology"] == "PE" and df.loc[8, "Ontology"] == "EtherPC"
+    assert df.loc[7, "Ontology"] == "EtherPE_P" and df.loc[8, "Ontology"] == "EtherPC_O"
 
 
 def test_all_keep_options_together(monkeypatch, tmp_path):
@@ -192,10 +192,17 @@ def test_all_keep_options_together(monkeypatch, tmp_path):
 
 
 def test_ontology_options(monkeypatch, tmp_path):
-    df = run_wiring(monkeypatch, tmp_path, "--no-oxygen-tag", "--p-tag", "--o-tag")
+    df = run_wiring(monkeypatch, tmp_path, "--no-oxygen-tag", "--no-ether-split")
     assert df.loc[6, "Ontology"] == "OxPC"
-    assert df.loc[7, "Ontology"] == "p-PE"
-    assert df.loc[8, "Ontology"] == "EtherPCO-"
+    assert df.loc[7, "Ontology"] == "EtherPE"
+    assert df.loc[8, "Ontology"] == "EtherPC"
+
+
+@pytest.mark.parametrize("option", ["--p-tag", "--o-tag"])
+def test_removed_tag_options_are_rejected(option, tmp_path):
+    with pytest.raises(SystemExit) as e:
+        main([str(tmp_path / "a.arf2"), option])
+    assert e.value.code == 2
 
 
 def test_sample_with_all_filters_off(sample_arf2, tmp_path):

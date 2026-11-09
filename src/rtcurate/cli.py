@@ -39,8 +39,8 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--keep-riken", action="store_true", help="RIKEN を除外しない")
     p.add_argument("--keep-ontology-null", action="store_true", help="Ontology なしを除外しない")
     p.add_argument("--no-oxygen-tag", action="store_true", help="Ontology に酸素数タグ (;O2 など) を付けない")
-    p.add_argument("--p-tag", action="store_true", help='名前に "p-" があれば Ontology の先頭に付ける')
-    p.add_argument("--o-tag", action="store_true", help='名前に "O-" があれば Ontology の末尾に付ける')
+    p.add_argument("--no-ether-split", action="store_true",
+                   help="Ether 系の O- と P- を分けずに同じ Ontology で判定する(既定では EtherPE_O / EtherPE_P に分ける)")
     p.add_argument("--exclude-ontology", action="append", default=[], metavar="NAME",
                    help="ペア評価から外す Ontology(複数回指定可)")
     return p
@@ -88,8 +88,7 @@ def main(argv: list[str] | None = None) -> int:
         riken=not args.keep_riken,
         ontology_null=not args.keep_ontology_null,
         oxygen_tag=not args.no_oxygen_tag,
-        p_tag=args.p_tag,
-        o_tag=args.o_tag,
+        ether_split=not args.no_ether_split,
     )
     result = run(preprocess(spots, opts), args.n_miss_threshold, args.miss_percent_threshold,
                  args.exclude_ontology)

@@ -10,6 +10,7 @@ import pandas as pd
 
 _C_DB = re.compile(r"(\d+):(\d+)")
 _OXYGEN = re.compile(r";O\d*")  # MS-DIAL5 の表記 (;O, ;O2, ;O3 ...)
+_ETHER_LINK = re.compile(r"(?<![A-Za-z])([OP])-\d")  # PE O-36:5 / PE P-36:4 の O- / P-
 
 
 @dataclass
@@ -20,8 +21,7 @@ class FilterOptions:
     riken: bool = True
     ontology_null: bool = True
     oxygen_tag: bool = True
-    p_tag: bool = False
-    o_tag: bool = False
+    ether_split: bool = True
 
 
 def calc_c_db(name: str) -> tuple[int | None, int | None]:
@@ -46,6 +46,12 @@ def oxygen_tag(name: str) -> str:
     return m.group() if m else ""
 
 
+def ether_link(name: str) -> str:
+    """種レベルの表記(`|` より前)の `O-` / `P-` から "O" か "P" を返す。無ければ空文字。"""
+    m = _ETHER_LINK.search(str(name).split("|", 1)[0])
+    return m.group(1) if m else ""
+
+
 def is_null_ontology(ontology: str) -> bool:
     return str(ontology).strip().lower() in ("", "unknown", "null", "nan")
 
@@ -64,12 +70,13 @@ def _exclusion_reasons(name: str, ontology: str, opts: FilterOptions) -> str:
 def _corrected_ontology(name: str, ontology: str, opts: FilterOptions) -> str:
     if is_null_ontology(ontology):
         return ontology
+    # P- は二重結合を 1 つ少なく書く(P-16:0 = O-16:1)ので、O- と同じグループで比べない
+    if opts.ether_split and ontology.startswith("Ether"):
+        link = ether_link(name)
+        if link:
+            ontology += f"_{link}"
     if opts.oxygen_tag:
         ontology += oxygen_tag(name)
-    if opts.p_tag and "p-" in name:
-        ontology = "p-" + ontology
-    if opts.o_tag and "O-" in name:
-        ontology += "O-"
     return ontology
 
 

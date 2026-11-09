@@ -44,7 +44,7 @@ MS-DIAL でそのアライメントを開くと、判定結果がタグとして
 | `--miss-percent-threshold FLOAT` | 10 | 除外候補になる miss% の下限(以上) |
 | `--keep-low-score` / `--keep-no-ms2` / `--keep-wo-ms2` / `--keep-riken` / `--keep-ontology-null` | すべてオフ(=除外する) | それぞれの前処理フィルタを無効にする |
 | `--no-oxygen-tag` | オフ(=付ける) | Ontology への酸素数タグ(`;O2` など)付与を無効にする |
-| `--p-tag` / `--o-tag` | オフ | 4.4 の `p_tag` / `o_tag` に相当 |
+| `--no-ether-split` | オフ(=分ける) | Ether 系の O- / P- を分けずに判定する。既定では `EtherPE_O` / `EtherPE_P` のように別の Ontology にする(P- は二重結合を 1 つ少なく書くため) |
 | `--exclude-ontology NAME` | なし | 指定した Ontology をペア評価から外す(複数回指定可、`OxPC` で `OxPC;O2` なども外れる) |
 
 ## TSV の読み方(`--tsv`)
