@@ -8,7 +8,10 @@ import csv
 import os
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
+
+from rtcurate.preprocess import is_null_ontology
 
 MSDIAL_HEADER_SCAN = 20  # MS-DIAL の txt の列名の行を探す範囲(先頭からの行数)
 _MSDIAL_REQUIRED = {"Average Rt(min)", "Metabolite name", "Ontology"}
@@ -157,3 +160,68 @@ def apply_use_column(df: pd.DataFrame, use: pd.Series) -> pd.DataFrame:
     out.loc[off, "inclusion"] = False
     out.loc[off, "curation"] = False
     return out
+
+
+@dataclass
+class GenericColumns:
+    rt: str = "RT"
+    c: str = "C"
+    db: str = "DB"
+    ontology: str = "Ontology"
+
+
+def _checked_numbers(values: pd.Series, checked: pd.Series, column: str, integer: bool) -> pd.Series:
+    """checked の行だけ数値にする。有限の数値でない値(C・DB は整数値でない値も)はエラー。"""
+    numbers = pd.to_numeric(values.where(checked), errors="coerce").astype(float)
+    bad = checked & ~np.isfinite(numbers)
+    if integer:
+        bad |= checked & np.isfinite(numbers) & (numbers != numbers.round())
+    if bad.any():
+        kind = "整数" if integer else "数値"
+        raise _bad_values(column, values, bad,
+                          f"{kind}として読めない値があります(値が無い場合は空欄にしてください)")
+    return numbers.where(checked)
+
+
+def generic_frame(table: RawTable, cols: GenericColumns, use: pd.Series | None,
+                  keep_ontology_null: bool) -> pd.DataFrame:
+    """汎用 TSV から、pair_eval.run にそのまま渡せる表を作る。名前を使った処理は何もしない。"""
+    frame = table.frame
+    names = {}
+    values = {}
+    for key, name in (("rt", cols.rt), ("c", cols.c), ("db", cols.db), ("ontology", cols.ontology)):
+        pos = find_column(frame, name)
+        names[key] = frame.columns[pos]
+        values[key] = frame.iloc[:, pos].astype(str).str.strip()
+
+    ontology = values["ontology"]
+    null_ontology = ontology.map(is_null_ontology).astype(bool)
+    use_ok = pd.Series(True, index=frame.index) if use is None else pd.Series(
+        use.to_numpy(dtype=bool), index=frame.index)
+    missing = (values["rt"] == "") | (values["c"] == "") | (values["db"] == "")
+
+    # 判定から外れる行(use が偽、Ontology なし)の値は確かめない。空のセルも確かめない
+    candidate = use_ok & ~null_ontology
+    rt = _checked_numbers(values["rt"], candidate & (values["rt"] != ""), names["rt"], integer=False)
+    c = _checked_numbers(values["c"], candidate & (values["c"] != ""), names["c"], integer=True)
+    db = _checked_numbers(values["db"], candidate & (values["db"] != ""), names["db"], integer=True)
+
+    checks = [
+        ("ontology_null", null_ontology & (not keep_ontology_null)),
+        ("missing_value", missing),
+        ("use_column", ~use_ok),
+    ]
+    reasons = [";".join(code for code, hit in checks if hit.iloc[i]) for i in range(len(frame))]
+
+    df = pd.DataFrame({
+        "MasterAlignmentID": np.arange(len(frame)),  # 同点のときは行番号の小さい方から外す
+        "rt": rt,
+        "c_s_total": c.round().astype("Int64"),
+        "db_s_total": db.round().astype("Int64"),
+        "Ontology": ontology,
+        "base_ontology": ontology,
+        "exclusion_reason": reasons,
+    }, index=frame.index)
+    df["inclusion"] = df["exclusion_reason"] == ""
+    df["curation"] = df["inclusion"]
+    return df

@@ -4,7 +4,8 @@ import pandas as pd
 import pytest
 
 from rtcurate.table import (
-    TableError, apply_use_column, find_column, msdial_spots, read_table, use_mask,
+    GenericColumns, TableError, apply_use_column, find_column, generic_frame, msdial_spots, read_table,
+    use_mask,
 )
 
 # MS-DIAL5 の Height_1_….txt と同じ並び: メタ情報の行(1 列目が空)のあとに列名の行
@@ -169,3 +170,81 @@ def test_apply_use_column_appends_reason():
     assert out["inclusion"].tolist() == [True, False, False]
     assert out["curation"].tolist() == [True, False, False]
     assert df["exclusion_reason"].tolist() == ["", "low_score", ""]  # 元の表は変えない
+
+
+GEN_HEADER = ["ID", "RT", "C", "DB", "Ontology", "Name"]
+
+
+def gen(tmp_path, rows, header=GEN_HEADER):
+    return read_table(write_tsv(tmp_path / "g.tsv", [header] + rows))
+
+
+def test_generic_basic(tmp_path):
+    t = gen(tmp_path, [["a", "1.5", "34", "1", "PC", "low score: PC 34:1"],
+                       ["b", "2.5", "36", "2", "PC", "PC 36:2"]])
+    df = generic_frame(t, GenericColumns(), None, keep_ontology_null=False)
+    assert df["MasterAlignmentID"].tolist() == [0, 1]
+    assert df.loc[0, "rt"] == 1.5 and df.loc[0, "c_s_total"] == 34 and df.loc[0, "db_s_total"] == 1
+    assert df.loc[0, "Ontology"] == "PC" and df.loc[0, "base_ontology"] == "PC"
+    assert bool(df.loc[0, "inclusion"]) and df.loc[0, "exclusion_reason"] == ""  # 名前の "low score" は見ない
+    assert bool(df.loc[0, "curation"])
+    assert str(df["c_s_total"].dtype) == "Int64" and str(df["db_s_total"].dtype) == "Int64"
+
+
+def test_generic_custom_and_case_insensitive_columns(tmp_path):
+    t = gen(tmp_path, [["5.0", "36", "2", "PE"]], header=["rt (min)", "carbon", "dbl", "class"])
+    df = generic_frame(t, GenericColumns("RT (min)", "Carbon", "DBL", "Class"), None, False)
+    assert df.loc[0, "rt"] == 5.0 and df.loc[0, "db_s_total"] == 2 and df.loc[0, "Ontology"] == "PE"
+
+
+def test_generic_missing_column_raises(tmp_path):
+    t = gen(tmp_path, [["1.0", "34", "PC"]], header=["RT", "C", "Ontology"])
+    with pytest.raises(TableError, match="DB"):
+        generic_frame(t, GenericColumns(), None, False)
+
+
+def test_generic_reasons_and_order(tmp_path):
+    t = gen(tmp_path, [["a", "", "34", "1", "", "x"],
+                       ["b", "1.0", "", "1", "PC", "x"],
+                       ["c", "1.0", "34", "1", "unknown", "x"],
+                       ["d", "1.0", "34", "1", "PC", "x"]])
+    df = generic_frame(t, GenericColumns(), pd.Series([False, True, True, True]), keep_ontology_null=False)
+    assert df["exclusion_reason"].tolist() == ["ontology_null;missing_value;use_column",
+                                               "missing_value", "ontology_null", ""]
+    assert df["inclusion"].tolist() == [False, False, False, True]
+    assert df["curation"].tolist() == [False, False, False, True]
+
+
+def test_generic_keep_ontology_null(tmp_path):
+    t = gen(tmp_path, [["a", "1.0", "34", "1", "null", "x"]])
+    df = generic_frame(t, GenericColumns(), None, keep_ontology_null=True)
+    assert df.loc[0, "exclusion_reason"] == "" and bool(df.loc[0, "inclusion"])
+
+
+@pytest.mark.parametrize("col,value", [("RT", "abc"), ("RT", "NaN"), ("RT", "inf"), ("C", "36.5"),
+                                       ("DB", "x"), ("C", "nan")])
+def test_generic_bad_value_raises(tmp_path, col, value):
+    row = {"ID": "a", "RT": "1.0", "C": "34", "DB": "1", "Ontology": "PC", "Name": "x"}
+    row[col] = value
+    t = gen(tmp_path, [list(row.values())])
+    with pytest.raises(TableError) as e:
+        generic_frame(t, GenericColumns(), None, False)
+    msg = str(e.value)
+    assert f"'{col}'" in msg and value in msg and "1 件目" in msg
+    if value.lower() in ("nan", "inf"):
+        assert "空欄" in msg
+
+
+def test_generic_integer_like_float_accepted(tmp_path):
+    t = gen(tmp_path, [["a", "1.0", "36.0", "2.0", "PC", "x"]])
+    df = generic_frame(t, GenericColumns(), None, False)
+    assert df.loc[0, "c_s_total"] == 36 and df.loc[0, "db_s_total"] == 2
+
+
+def test_generic_bad_values_ignored_on_excluded_rows(tmp_path):
+    t = gen(tmp_path, [["a", "abc", "34", "1", "PC", "x"],   # use=False → チェックしない
+                       ["b", "abc", "34", "1", "", "x"],     # Ontology が空 → チェックしない
+                       ["c", "1.0", "34", "1", "PC", "x"]])
+    df = generic_frame(t, GenericColumns(), pd.Series([False, True, True]), keep_ontology_null=True)
+    assert pd.isna(df.loc[0, "rt"]) and pd.isna(df.loc[1, "rt"]) and df.loc[2, "rt"] == 1.0
+    assert df["exclusion_reason"].tolist() == ["use_column", "", ""]
