@@ -1,8 +1,8 @@
 import pytest
 
 from conftest import spots_df
-from rtcurate.pair_eval import run
-from rtcurate.preprocess import FilterOptions, calc_c_db, is_null_ontology, oxygen_tag, preprocess
+from pairrt.pair_eval import run
+from pairrt.preprocess import FilterOptions, calc_c_db, is_null_ontology, oxygen_tag, preprocess
 
 
 @pytest.mark.parametrize("name,expected", [

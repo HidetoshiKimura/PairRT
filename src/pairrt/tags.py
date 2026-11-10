@@ -70,7 +70,7 @@ def merge_tags(existing: dict[int, list[int]], df: pd.DataFrame, rt_tag: int = D
                confirm: bool = False) -> tuple[dict[int, list[int]], list[int]]:
     """判定結果を既存のタグに反映する。
 
-    - rt_tag は rtcurate 専用とみなし、前回の分をすべて外してから今回の結果で付け直す。
+    - rt_tag は pairrt 専用とみなし、前回の分をすべて外してから今回の結果で付け直す。
     - Confirmed (1) は手作業のキュレーション用なので既定では触れない。
       confirm=True のときだけ、ペア評価で残ったものに付け足す(外すことはしない)。
     - それ以外のタグはそのまま残す。

@@ -2,9 +2,9 @@ import pandas as pd
 import pytest
 
 from conftest import spots_df
-from rtcurate.output import MAIN_COLUMNS, summary, write_excluded, write_main
-from rtcurate.pair_eval import run
-from rtcurate.preprocess import FilterOptions, preprocess
+from pairrt.output import MAIN_COLUMNS, summary, write_excluded, write_main
+from pairrt.pair_eval import run
+from pairrt.preprocess import FilterOptions, preprocess
 
 
 @pytest.fixture

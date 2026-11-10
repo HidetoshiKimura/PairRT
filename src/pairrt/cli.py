@@ -1,4 +1,4 @@
-"""rtcurate コマンドのエントリポイント。"""
+"""pairrt コマンドのエントリポイント。"""
 
 import argparse
 import os
@@ -9,15 +9,15 @@ from pathlib import Path
 
 import pandas as pd
 
-from rtcurate.io import load_spots
-from rtcurate.output import summary, write_excluded, write_main
-from rtcurate.pair_eval import run
-from rtcurate.preprocess import FilterOptions, preprocess
-from rtcurate.table import (
+from pairrt.io import load_spots
+from pairrt.output import summary, write_excluded, write_main
+from pairrt.pair_eval import run
+from pairrt.preprocess import FilterOptions, preprocess
+from pairrt.table import (
     GenericColumns, RawTable, TableError, apply_use_column, check_added_columns, generic_frame, msdial_spots,
     read_table, use_mask, write_table,
 )
-from rtcurate.tags import DEFAULT_RT_TAG, TagFile, merge_tags, read_tags, render_tags, save_with_backup
+from pairrt.tags import DEFAULT_RT_TAG, TagFile, merge_tags, read_tags, render_tags, save_with_backup
 
 # 汎用 TSV の列名オプション(argparse の属性名 → オプション名)
 _COLUMN_OPTIONS = {"rt_column": "--rt-column", "c_column": "--c-column", "db_column": "--db-column",
@@ -31,7 +31,7 @@ _TAG_OPTIONS = {"rt_tag": "--rt-tag", "tag_confirmed": "--tag-confirmed"}
 
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="rtcurate",
+        prog="pairrt",
         description="同じ脂質クラスの中で RT 順序が矛盾するアノテーションを見つける。"
                     ".arf2 では MS-DIAL のタグを付け、MS-DIAL の txt と汎用 TSV では判定結果の列を足した表を出す。",
     )

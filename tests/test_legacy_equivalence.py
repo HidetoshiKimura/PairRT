@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 
 from conftest import ROOT, grp
-from rtcurate.pair_eval import auto_curate_group, count_pairs
+from pairrt.pair_eval import auto_curate_group, count_pairs
 
 LEGACY_DIR = ROOT.parent / "RerativeRT_auto_checher4.4" / "script"
 

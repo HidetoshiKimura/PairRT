@@ -5,7 +5,7 @@ import os
 import pandas as pd
 from msdialio import read_arf2
 
-# msdialio のキー → rtcurate の列名(この順で出力する)
+# msdialio のキー → pairrt の列名(この順で出力する)
 _COLUMNS = {
     "MasterAlignmentID": "MasterAlignmentID",
     "Name": "name",

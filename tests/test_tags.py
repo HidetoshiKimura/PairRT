@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from rtcurate.tags import (
+from pairrt.tags import (
     DEFAULT_DEFINITIONS, TagFile, merge_tags, read_tags, render_tags, save_with_backup,
 )
 
@@ -78,7 +78,7 @@ def test_merge_default_does_not_touch_tag1():
 
 
 def test_merge_resets_old_rt_tag_but_keeps_manual_tags():
-    old = {2: [5], 9: [5], 10: [3], 11: [1]}  # 9 は前回の rtcurate の印、10/11 は手作業
+    old = {2: [5], 9: [5], 10: [3], 11: [1]}  # 9 は前回の pairrt の印、10/11 は手作業
     df = result_df([(2, True, False, "rt_order"), (9, True, True, "")])
     merged, _ = merge_tags(old, df, rt_tag=5, confirm=True)
     assert merged == {2: [5], 9: [1], 10: [3], 11: [1]}

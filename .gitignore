@@ -11,7 +11,7 @@ build/
 dist/
 *.egg-info/
 
-# rtcurate の出力(データ由来のファイルは記録しない)
+# pairrt の出力(データ由来のファイルは記録しない)
 *_rtcurated.tsv
 *_rt_excluded.tsv
 

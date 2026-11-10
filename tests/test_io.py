@@ -1,6 +1,6 @@
 import pytest
 
-from rtcurate.io import load_spots
+from pairrt.io import load_spots
 
 
 def test_load_sample_columns_and_count(sample_arf2):
@@ -13,6 +13,6 @@ def test_load_sample_columns_and_count(sample_arf2):
 
 def test_duplicate_ids_raise(monkeypatch):
     fake = [dict(MasterAlignmentID=1, Name="a", MassCenter=1.0, RT=1.0, Ontology="PC", AdductType="")] * 2
-    monkeypatch.setattr("rtcurate.io.read_arf2", lambda p, slim: fake)
+    monkeypatch.setattr("pairrt.io.read_arf2", lambda p, slim: fake)
     with pytest.raises(ValueError, match="duplicate"):
         load_spots("x.arf2")

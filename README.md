@@ -1,4 +1,4 @@
-# rtcurate
+# pairrt
 
 同じ脂質クラス(Ontology)の中で「炭素数・二重結合数から予想される溶出順」と実際の RT が
 矛盾するアノテーションに印を付ける CLI。判定は RT 順序だけで行う。
@@ -23,7 +23,7 @@ uv sync
 ## 使い方
 
 ```
-uv run rtcurate AlignmentResult_xxx.arf2 [options]
+uv run pairrt AlignmentResult_xxx.arf2 [options]
 ```
 
 1 回の実行で 1 ファイル(1 極性)を処理する。Neg と Pos はそれぞれ実行する。
@@ -37,7 +37,7 @@ MS-DIAL でそのアライメントを開くと、判定結果がタグとして
 
 既存のタグファイルがある場合:
 
-- 手作業で付けたタグは残す。ただし rt タグ(既定 5)は rtcurate 専用として、前回の分を外して付け直す。
+- 手作業で付けたタグは残す。ただし rt タグ(既定 5)は pairrt 専用として、前回の分を外して付け直す。
 - Confirmed(1)は外さない。手作業で Confirmed にしたスポットが RT 順序で外れた場合は 1 と 5 の両方が付くので、件数と ID を表示する。
 - 書き換える前に `rtcurate_backup_<日時>/` を作り、古いファイル(`old_…`)と新しいファイル(`new_…`)を置く。
 
@@ -62,9 +62,9 @@ MS-DIAL でそのアライメントを開くと、判定結果がタグとして
 ## MS-DIAL の txt と汎用 TSV
 
 ```
-uv run rtcurate Height_1_2026_11_09_16_43_20.txt
-uv run rtcurate other_tool.tsv --rt-column "RT (min)" --c-column Carbon --db-column DoubleBond --ontology-column Class
-uv run rtcurate other_tool.tsv --use-column keep
+uv run pairrt Height_1_2026_11_09_16_43_20.txt
+uv run pairrt other_tool.tsv --rt-column "RT (min)" --c-column Carbon --db-column DoubleBond --ontology-column Class
+uv run pairrt other_tool.tsv --use-column keep
 ```
 
 - 出力は `<入力名>_rtcurated.tsv`(常に出す)。入力の全列を元の順番・元の文字列のまま左に置き、

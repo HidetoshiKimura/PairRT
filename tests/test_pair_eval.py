@@ -1,8 +1,8 @@
 import pandas as pd
 
 from conftest import grp, spots_df
-from rtcurate.pair_eval import auto_curate_group, count_pairs, run
-from rtcurate.preprocess import FilterOptions, preprocess
+from pairrt.pair_eval import auto_curate_group, count_pairs, run
+from pairrt.preprocess import FilterOptions, preprocess
 
 
 def by_id(g: pd.DataFrame, result: pd.DataFrame) -> pd.DataFrame:

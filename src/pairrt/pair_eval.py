@@ -9,7 +9,7 @@ from collections.abc import Iterable
 import numpy as np
 import pandas as pd
 
-from rtcurate.preprocess import is_null_ontology
+from pairrt.preprocess import is_null_ontology
 
 COUNT_COLUMNS = ["n_miss", "n_correct", "n_total", "miss%"]
 _RESULT_DTYPES = {"n_miss": "Int64", "n_correct": "Int64", "n_total": "Int64",

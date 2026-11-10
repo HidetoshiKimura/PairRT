@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from rtcurate.preprocess import is_null_ontology
+from pairrt.preprocess import is_null_ontology
 
 MSDIAL_HEADER_SCAN = 20  # MS-DIAL の txt の列名の行を探す範囲(先頭からの行数)
 _MSDIAL_REQUIRED = {"Average Rt(min)", "Metabolite name", "Ontology"}

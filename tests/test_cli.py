@@ -6,8 +6,8 @@ import pytest
 
 from conftest import spots_df
 from test_table import HEADER, META4, write_tsv
-from rtcurate.cli import main
-from rtcurate.tags import read_tags
+from pairrt.cli import main
+from pairrt.tags import read_tags
 
 STEM = "AlignmentResult_2026_10_20_11_07_17"
 
@@ -63,7 +63,7 @@ def test_tsv_and_excluded_options(sample_arf2, tmp_path):
 
 def test_existing_tags_are_backed_up_and_merged(sample_arf2, tmp_path, capsys):
     target = tmp_path / f"{STEM}_tags.xml"
-    # ID 0 = 手作業の Misannotation、ID 1〜9 = 前回の rtcurate の印(タグ 5)
+    # ID 0 = 手作業の Misannotation、ID 1〜9 = 前回の pairrt の印(タグ 5)
     peaks = '<Peak Id="0"><Tag>3</Tag></Peak>' + "".join(
         f'<Peak Id="{i}"><Tag>5</Tag></Peak>' for i in range(1, 10))
     target.write_text('<?xml version="1.0" encoding="utf-8"?><PeakSpotTags><Definitions/>'
@@ -129,7 +129,7 @@ def _cp932_stream():
 
 
 def test_git_bash_output_is_utf8(monkeypatch):
-    from rtcurate.cli import _utf8_for_git_bash
+    from pairrt.cli import _utf8_for_git_bash
     out, err = _cp932_stream(), _cp932_stream()
     monkeypatch.setattr("sys.stdout", out)
     monkeypatch.setattr("sys.stderr", err)
@@ -139,7 +139,7 @@ def test_git_bash_output_is_utf8(monkeypatch):
 
 
 def test_other_shells_keep_encoding(monkeypatch):
-    from rtcurate.cli import _utf8_for_git_bash
+    from pairrt.cli import _utf8_for_git_bash
     out = _cp932_stream()
     monkeypatch.setattr("sys.stdout", out)
     monkeypatch.delenv("MSYSTEM", raising=False)
@@ -162,7 +162,7 @@ WIRING_ROWS = [
 
 def run_wiring(monkeypatch, tmp_path, *options) -> pd.DataFrame:
     """.arf2 の読み込みを WIRING_ROWS に差し替えて実行し、TSV を ID で引ける形で返す。"""
-    monkeypatch.setattr("rtcurate.cli.load_spots", lambda _: spots_df(WIRING_ROWS))
+    monkeypatch.setattr("pairrt.cli.load_spots", lambda _: spots_df(WIRING_ROWS))
     src = tmp_path / "dummy.arf2"
     src.write_bytes(b"")
     assert main([str(src), "-o", str(tmp_path), "--tsv", *options]) == 0
@@ -305,7 +305,7 @@ def test_generic_ignored_options_warn(tmp_path, capsys):
 ])
 def test_option_input_mismatch_returns_2(kind, options, tmp_path, monkeypatch, capsys):
     if kind == "arf2":
-        monkeypatch.setattr("rtcurate.cli.load_spots", lambda _: spots_df(WIRING_ROWS))
+        monkeypatch.setattr("pairrt.cli.load_spots", lambda _: spots_df(WIRING_ROWS))
         src = tmp_path / "dummy.arf2"
         src.write_bytes(b"")
     else:
@@ -360,7 +360,7 @@ def test_header_row_option(tmp_path):
 
 
 def test_header_row_with_arf2_returns_2(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr("rtcurate.cli.load_spots", lambda _: spots_df(WIRING_ROWS))
+    monkeypatch.setattr("pairrt.cli.load_spots", lambda _: spots_df(WIRING_ROWS))
     src = tmp_path / "dummy.arf2"
     src.write_bytes(b"")
     assert main([str(src), "-o", str(tmp_path / "o"), "--header-row", "2"]) == 2
@@ -407,7 +407,7 @@ def test_table_overwrite_option(tmp_path):
 
 
 def test_arf2_existing_tsv_returns_2_without_touching_tags(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr("rtcurate.cli.load_spots", lambda _: spots_df(WIRING_ROWS))
+    monkeypatch.setattr("pairrt.cli.load_spots", lambda _: spots_df(WIRING_ROWS))
     src = tmp_path / "dummy.arf2"
     src.write_bytes(b"")
     (tmp_path / "dummy_rtcurated.tsv").write_text("old", encoding="utf-8")
@@ -420,7 +420,7 @@ def test_arf2_existing_tsv_returns_2_without_touching_tags(tmp_path, monkeypatch
 
 
 def test_arf2_existing_tags_still_backed_up_without_overwrite(tmp_path, monkeypatch):
-    monkeypatch.setattr("rtcurate.cli.load_spots", lambda _: spots_df(WIRING_ROWS))
+    monkeypatch.setattr("pairrt.cli.load_spots", lambda _: spots_df(WIRING_ROWS))
     src = tmp_path / "dummy.arf2"
     src.write_bytes(b"")
     assert main([str(src)]) == 0

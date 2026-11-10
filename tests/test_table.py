@@ -3,9 +3,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from rtcurate.pair_eval import run
-from rtcurate.preprocess import FilterOptions, preprocess
-from rtcurate.table import (
+from pairrt.pair_eval import run
+from pairrt.preprocess import FilterOptions, preprocess
+from pairrt.table import (
     ADDED_COLUMNS, GenericColumns, TableError, apply_use_column, find_column, generic_frame, msdial_spots, read_table,
     check_added_columns, use_mask, write_table,
 )
