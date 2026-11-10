@@ -70,3 +70,90 @@ def find_column(frame: pd.DataFrame, name: str) -> int:
         found = ", ".join(f"'{frame.columns[i]}'" for i in hits)
         raise TableError(f"列 '{name}' に当たる列が複数あります: {found}")
     return hits[0]
+
+
+# MS-DIAL の txt の列 → load_spots と同じ列名
+_MSDIAL_COLUMNS = {
+    "Alignment ID": "MasterAlignmentID",
+    "Metabolite name": "name",
+    "Average Mz": "mz",
+    "Average Rt(min)": "rt",
+    "Ontology": "Ontology",
+    "Adduct type": "Adduct_type",
+}
+_TRUE = {"true", "1", "yes"}
+_FALSE = {"false", "0", "no"}
+_SHOWN = 5  # エラーに出す値の件数
+
+
+def _exact_column(frame: pd.DataFrame, name: str) -> pd.Series:
+    hits = [i for i, col in enumerate(frame.columns) if col == name]
+    if not hits:
+        raise TableError(f"列 '{name}' がありません")
+    if len(hits) > 1:
+        raise TableError(f"列 '{name}' が複数あります")
+    return frame.iloc[:, hits[0]].astype(str).str.strip()
+
+
+def _bad_values(column: str, values: pd.Series, bad: pd.Series, hint: str) -> TableError:
+    """bad が True の値を、データの何件目か(1 始まり)と一緒に最初の数件だけ並べたエラーを作る。"""
+    shown = [f"{i + 1} 件目 '{v}'" for i, v in list(values[bad].items())[:_SHOWN]]
+    return TableError(f"列 '{column}' に{hint}: {', '.join(shown)}(全 {int(bad.sum())} 件)")
+
+
+def _to_float(values: pd.Series, column: str) -> pd.Series:
+    """null と空は NaN、それ以外で数値にできない値はエラー。"""
+    missing = values.isin(["", "null"])
+    numbers = pd.to_numeric(values.where(~missing), errors="coerce")
+    bad = numbers.isna() & ~missing
+    if bad.any():
+        raise _bad_values(column, values, bad, "数値として読めない値があります")
+    return numbers.astype(float)
+
+
+def msdial_spots(table: RawTable) -> pd.DataFrame:
+    """MS-DIAL の txt から、load_spots と同じ形の表(1 行 = 1 スポット)を作る。"""
+    cols = {new: _exact_column(table.frame, old) for old, new in _MSDIAL_COLUMNS.items()}
+
+    ids = pd.to_numeric(cols["MasterAlignmentID"], errors="coerce")
+    bad = ids.isna() | (ids != ids.round())
+    if bad.any():
+        raise _bad_values("Alignment ID", cols["MasterAlignmentID"], bad, "整数でない値があります")
+    ids = ids.astype(int)
+    duplicated = ids[ids.duplicated()]
+    if not duplicated.empty:
+        raise TableError(f"Alignment ID が重複しています: {sorted(set(duplicated))[:10]}")
+
+    df = pd.DataFrame({
+        "MasterAlignmentID": ids,
+        "name": cols["name"],
+        "mz": _to_float(cols["mz"], "Average Mz"),
+        "rt": _to_float(cols["rt"], "Average Rt(min)"),
+        "Ontology": cols["Ontology"],
+        "Adduct_type": cols["Adduct_type"],
+    }, index=table.frame.index)
+    for col in ("name", "Ontology", "Adduct_type"):
+        df[col] = df[col].where(df[col] != "null", "")
+    return df
+
+
+def use_mask(frame: pd.DataFrame, column: str) -> pd.Series:
+    """--use-column の列を真偽として読む。TRUE/1/yes が真、FALSE/0/no が偽。それ以外はエラー。"""
+    pos = find_column(frame, column)
+    name = frame.columns[pos]
+    values = frame.iloc[:, pos].astype(str).str.strip().str.lower()
+    bad = ~values.isin(_TRUE | _FALSE)
+    if bad.any():
+        raise _bad_values(name, frame.iloc[:, pos], bad, " TRUE/FALSE、1/0、yes/no 以外の値があります")
+    return values.isin(_TRUE)
+
+
+def apply_use_column(df: pd.DataFrame, use: pd.Series) -> pd.DataFrame:
+    """use が偽の行を判定から外す(理由の最後に use_column を足す)。"""
+    out = df.copy()
+    off = ~use.to_numpy(dtype=bool)
+    reasons = out["exclusion_reason"].astype(str)
+    out.loc[off, "exclusion_reason"] = [f"{r};use_column" if r else "use_column" for r in reasons[off]]
+    out.loc[off, "inclusion"] = False
+    out.loc[off, "curation"] = False
+    return out

@@ -3,7 +3,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from rtcurate.table import TableError, find_column, read_table
+from rtcurate.table import (
+    TableError, apply_use_column, find_column, msdial_spots, read_table, use_mask,
+)
 
 # MS-DIAL5 の Height_1_….txt と同じ並び: メタ情報の行(1 列目が空)のあとに列名の行
 HEADER = ["Alignment ID", "Average Rt(min)", "Average Mz", "Metabolite name", "Adduct type",
@@ -108,3 +110,62 @@ def test_find_column_missing_or_ambiguous():
         find_column(pd.DataFrame(columns=["RT", "rt"]), "RT")
     with pytest.raises(TableError, match="RT"):
         find_column(pd.DataFrame(columns=["RT", "RT"]), "RT")
+
+
+def msdial(tmp_path, rows, header=HEADER) -> "RawTable":
+    return read_table(write_tsv(tmp_path / "h.txt", META4 + [header] + rows))
+
+
+def test_msdial_spots_matches_load_spots_shape(tmp_path):
+    t = msdial(tmp_path, [["5", "13.793", "760.5851", "PC 34:1", "[M+H]+", "PC", "1", "2"],
+                          ["7", "null", "null", "null", "null", "null", "1", "2"]])
+    df = msdial_spots(t)
+    assert list(df.columns) == ["MasterAlignmentID", "name", "mz", "rt", "Ontology", "Adduct_type"]
+    assert df.loc[0, "MasterAlignmentID"] == 5 and df.loc[0, "rt"] == 13.793
+    assert df.loc[0, "mz"] == 760.5851 and df.loc[0, "name"] == "PC 34:1"
+    assert df.loc[0, "Adduct_type"] == "[M+H]+" and df.loc[0, "Ontology"] == "PC"
+    assert pd.isna(df.loc[1, "rt"]) and pd.isna(df.loc[1, "mz"])
+    assert df.loc[1, "name"] == "" and df.loc[1, "Ontology"] == "" and df.loc[1, "Adduct_type"] == ""
+    assert df["MasterAlignmentID"].dtype.kind == "i" and df["rt"].dtype.kind == "f"
+
+
+@pytest.mark.parametrize("rows,header,match", [
+    ([ROW_A, ROW_A], HEADER, "重複"),
+    ([["x"] + ROW_A[1:]], HEADER, "Alignment ID"),
+    ([["0", "abc"] + ROW_A[2:]], HEADER, "Average Rt"),
+    ([["0", "1.0", "abc"] + ROW_A[3:]], HEADER, "Average Mz"),
+    ([ROW_A[:4] + ROW_A[5:]], [h for h in HEADER if h != "Adduct type"], "Adduct type"),
+    ([ROW_A + ["PC"]], HEADER + ["Ontology"], "Ontology"),
+])
+def test_msdial_spots_errors(tmp_path, rows, header, match):
+    with pytest.raises(TableError, match=match):
+        msdial_spots(msdial(tmp_path, rows, header))
+
+
+@pytest.mark.parametrize("value,expected", [("TRUE", True), ("true", True), (" 1 ", True), ("Yes", True),
+                                            ("FALSE", False), ("0", False), ("no", False)])
+def test_use_mask_values(value, expected):
+    f = pd.DataFrame({"Keep": [value]})
+    assert use_mask(f, "keep").tolist() == [expected]
+
+
+def test_use_mask_rejects_blank_and_other():
+    f = pd.DataFrame({"keep": ["TRUE", "", "maybe"]})
+    with pytest.raises(TableError, match="maybe") as e:
+        use_mask(f, "keep")
+    assert "keep" in str(e.value)
+
+
+def test_use_mask_missing_column():
+    with pytest.raises(TableError, match="keep"):
+        use_mask(pd.DataFrame({"x": ["1"]}), "keep")
+
+
+def test_apply_use_column_appends_reason():
+    df = pd.DataFrame({"exclusion_reason": ["", "low_score", ""], "inclusion": [True, False, True],
+                       "curation": [True, False, True]})
+    out = apply_use_column(df, pd.Series([True, False, False]))
+    assert out["exclusion_reason"].tolist() == ["", "low_score;use_column", "use_column"]
+    assert out["inclusion"].tolist() == [True, False, False]
+    assert out["curation"].tolist() == [True, False, False]
+    assert df["exclusion_reason"].tolist() == ["", "low_score", ""]  # 元の表は変えない
