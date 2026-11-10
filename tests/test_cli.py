@@ -109,8 +109,9 @@ def test_keep_and_exclude_options(sample_arf2, tmp_path):
 def test_unwritable_output_returns_2(sample_arf2, tmp_path, capsys):
     # 出力先に同名のフォルダがあると書き込めない(Excel で開いたままの TSV と同じく OSError になる)
     (tmp_path / f"{STEM}_rtcurated.tsv").mkdir()
-    assert main([str(sample_arf2), "-o", str(tmp_path), "--tsv"]) == 2
-    assert f"{STEM}_rtcurated.tsv" in capsys.readouterr().err
+    assert main([str(sample_arf2), "-o", str(tmp_path), "--tsv", "--overwrite"]) == 2
+    err = capsys.readouterr().err
+    assert f"{STEM}_rtcurated.tsv" in err and "書き込めませんでした" in err
 
 
 def test_broken_existing_tags_returns_2_and_keeps_file(sample_arf2, tmp_path, capsys):
@@ -270,7 +271,7 @@ def test_generic_end_to_end_with_use_column(tmp_path):
     src = generic_tsv(tmp_path)
     assert main([str(src)]) == 0  # use 列を指定しなければ 6 件目も比べる → 1 件 rt_order
     assert (read(tmp_path / "other_rtcurated.tsv")["exclusion_reason"] == "rt_order").sum() == 1
-    assert main([str(src), "--use-column", "keep"]) == 0
+    assert main([str(src), "--use-column", "keep", "--overwrite"]) == 0
     out = read(tmp_path / "other_rtcurated.tsv")
     assert (out["exclusion_reason"] == "rt_order").sum() == 0
     assert out.loc[5, "exclusion_reason"] == "use_column" and out.loc[5, "ID"] == "s5"
@@ -373,3 +374,55 @@ def test_msdial_txt_duplicate_ids_use_row_number(tmp_path, capsys):
     assert "重複" in capsys.readouterr().err
     out = read(tmp_path / "merged_rtcurated.tsv")
     assert out["Alignment ID"].tolist() == [0, 1, 2, 0, 1, 2]  # 入力の ID は元のまま出力に残る
+
+
+# ---- 既存の出力を上書きしない ----
+
+def test_table_existing_output_returns_2(tmp_path, capsys):
+    src = generic_tsv(tmp_path)
+    out = tmp_path / "other_rtcurated.tsv"
+    out.write_text("old", encoding="utf-8")
+    assert main([str(src)]) == 2
+    err = capsys.readouterr().err
+    assert "other_rtcurated.tsv" in err and "--overwrite" in err
+    assert out.read_text(encoding="utf-8") == "old"
+
+
+def test_table_existing_excluded_returns_2_and_writes_nothing(tmp_path):
+    src = generic_tsv(tmp_path)
+    ex = tmp_path / "other_rt_excluded.tsv"
+    ex.write_text("old", encoding="utf-8")
+    assert main([str(src)]) == 0  # --write-excluded なしなら除外一覧は書かないので問題ない
+    (tmp_path / "other_rtcurated.tsv").unlink()
+    assert main([str(src), "--write-excluded"]) == 2
+    assert not (tmp_path / "other_rtcurated.tsv").exists() and ex.read_text(encoding="utf-8") == "old"
+
+
+def test_table_overwrite_option(tmp_path):
+    src = generic_tsv(tmp_path)
+    out = tmp_path / "other_rtcurated.tsv"
+    out.write_text("old", encoding="utf-8")
+    assert main([str(src), "--overwrite"]) == 0
+    assert "rt_group" in out.read_text(encoding="utf-8-sig")
+
+
+def test_arf2_existing_tsv_returns_2_without_touching_tags(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("rtcurate.cli.load_spots", lambda _: spots_df(WIRING_ROWS))
+    src = tmp_path / "dummy.arf2"
+    src.write_bytes(b"")
+    (tmp_path / "dummy_rtcurated.tsv").write_text("old", encoding="utf-8")
+    assert main([str(src), "--tsv"]) == 2
+    assert "dummy_rtcurated.tsv" in capsys.readouterr().err
+    assert not (tmp_path / "dummy_tags.xml").exists()
+    assert main([str(src)]) == 0  # --tsv なしなら表は書かないので問題ない
+    assert main([str(src), "--tsv", "--overwrite"]) == 0
+    assert (tmp_path / "dummy_rtcurated.tsv").read_text(encoding="utf-8") != "old"
+
+
+def test_arf2_existing_tags_still_backed_up_without_overwrite(tmp_path, monkeypatch):
+    monkeypatch.setattr("rtcurate.cli.load_spots", lambda _: spots_df(WIRING_ROWS))
+    src = tmp_path / "dummy.arf2"
+    src.write_bytes(b"")
+    assert main([str(src)]) == 0
+    assert main([str(src)]) == 0  # _tags.xml は退避してから書くので、--overwrite は要らない
+    assert any(p.name.startswith("rtcurate_backup_") for p in tmp_path.iterdir())

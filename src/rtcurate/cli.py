@@ -44,6 +44,9 @@ def _parser() -> argparse.ArgumentParser:
                    help="判定結果の表 <入力名>_rtcurated.tsv も出力する(txt / TSV の入力では常に出す)")
     p.add_argument("--write-excluded", action="store_true",
                    help="RT 順序で自動除外したものの一覧 <入力名>_rt_excluded.tsv も出力する")
+    p.add_argument("--overwrite", action="store_true",
+                   help="出力の表 (_rtcurated.tsv / _rt_excluded.tsv) がすでにあれば上書きする"
+                        "(既定ではエラーで止める。_tags.xml は常に古いものを退避してから書く)")
     p.add_argument("--rt-tag", type=int, choices=[2, 3, 4, 5], default=None,
                    help=f"RT 順序で外れたスポットに付けるタグ ID(既定 {DEFAULT_RT_TAG} = Overannotation。.arf2 のみ)")
     p.add_argument("--tag-confirmed", action="store_true",
@@ -90,6 +93,17 @@ def _error(message: str) -> int:
     return 2
 
 
+def _refuse_overwrite(args, outputs: list[Path]) -> bool:
+    """出力の表がすでにあれば、--overwrite が無い限り何も書かずに止める(_tags.xml は退避するので対象外)。"""
+    existing = [p for p in outputs if p.exists()]
+    if existing and not args.overwrite:
+        names = ", ".join(str(p) for p in existing)
+        _error(f"出力先にすでにファイルがあります: {names}(上書きするなら --overwrite を付けてください。"
+               "何も書き込んでいません)")
+        return True
+    return False
+
+
 def main(argv: list[str] | None = None) -> int:
     _utf8_for_git_bash()
     args = _parser().parse_args(argv)
@@ -121,6 +135,10 @@ def _main_arf2(args, src: Path, out_dir: Path, opts: FilterOptions) -> int:
     if wrong:
         return _error(f"{', '.join(wrong)} は txt / TSV / CSV の入力でだけ使えます")
     rt_tag = DEFAULT_RT_TAG if args.rt_tag is None else args.rt_tag
+    tsv = out_dir / f"{src.stem}_rtcurated.tsv"
+    excluded = out_dir / f"{src.stem}_rt_excluded.tsv"
+    if _refuse_overwrite(args, [tsv] * args.tsv + [excluded] * args.write_excluded):
+        return 2
 
     tags_path = out_dir / f"{src.stem}_tags.xml"
     try:
@@ -138,12 +156,10 @@ def _main_arf2(args, src: Path, out_dir: Path, opts: FilterOptions) -> int:
     print(summary(result))
 
     if args.tsv:
-        tsv = out_dir / f"{src.stem}_rtcurated.tsv"
         if not _try_write(write_main, result, tsv):
             return 2
         print(f"表: {tsv}")
     if args.write_excluded:
-        excluded = out_dir / f"{src.stem}_rt_excluded.tsv"
         if not _try_write(write_excluded, result, excluded):
             return 2
         print(f"除外一覧: {excluded}")
@@ -167,6 +183,10 @@ def _main_table(args, src: Path, out_dir: Path, opts: FilterOptions) -> int:
     wrong = _given(args, _TAG_OPTIONS)
     if wrong:
         return _error(f"{', '.join(wrong)} は .arf2 の入力でだけ使えます(txt / TSV からはタグファイルを作りません)")
+    tsv = out_dir / f"{src.stem}_rtcurated.tsv"
+    excluded = out_dir / f"{src.stem}_rt_excluded.tsv"
+    if _refuse_overwrite(args, [tsv] + [excluded] * args.write_excluded):
+        return 2
     try:
         table = read_table(src, header_row=args.header_row)
         wrong = _given(args, _COLUMN_OPTIONS) if table.kind == "msdial_txt" else []
@@ -180,12 +200,10 @@ def _main_table(args, src: Path, out_dir: Path, opts: FilterOptions) -> int:
     result = run(df, args.n_miss_threshold, args.miss_percent_threshold, args.exclude_ontology)
     print(summary(result, total_label="行数" if table.kind == "generic" else "検出スポット数"))
 
-    tsv = out_dir / f"{src.stem}_rtcurated.tsv"
     if not _try_write(lambda r, p: write_table(table, r, p), result, tsv):
         return 2
     print(f"表: {tsv}")
     if args.write_excluded:
-        excluded = out_dir / f"{src.stem}_rt_excluded.tsv"
         if not _try_write(lambda r, p: write_table(table, r, p, rt_order_only=True), result, excluded):
             return 2
         print(f"除外一覧: {excluded}")

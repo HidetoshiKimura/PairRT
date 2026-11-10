@@ -46,6 +46,7 @@ MS-DIAL でそのアライメントを開くと、判定結果がタグとして
 | `-o, --out-dir DIR` | 入力と同じフォルダ | 出力先フォルダ |
 | `--tsv` | オフ | 判定結果の表 `<入力名>_rtcurated.tsv` も出力する |
 | `--write-excluded` | オフ | 自動で外したものの一覧を `<入力名>_rt_excluded.tsv` も出力する |
+| `--overwrite` | オフ | 出力の表(`_rtcurated.tsv` / `_rt_excluded.tsv`)がすでにあれば上書きする。既定では何も書かずにエラーで止める(`_tags.xml` は常に古いものを退避してから書くので対象外) |
 | `--rt-tag {2,3,4,5}` | 5 | RT 順序で外れたスポットに付けるタグ ID |
 | `--tag-confirmed` | オフ | ペア評価で残ったスポットに Confirmed(1)を付け足す |
 | `--n-miss-threshold INT` | 4 | 除外候補になる n_miss の下限(以上) |
