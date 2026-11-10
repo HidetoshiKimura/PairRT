@@ -1,8 +1,16 @@
 # rtcurate
 
-MS-DIAL5 の AlignmentResult(`.arf2`)を読み、同じ脂質クラス(Ontology)の中で
-「炭素数・二重結合数から予想される溶出順」と実際の RT が矛盾するアノテーションに印を付ける CLI。
-判定は RT 順序だけで行う。`RerativeRT_auto_checher4.4` の前処理とペア評価を移植したもの。
+同じ脂質クラス(Ontology)の中で「炭素数・二重結合数から予想される溶出順」と実際の RT が
+矛盾するアノテーションに印を付ける CLI。判定は RT 順序だけで行う。
+`RerativeRT_auto_checher4.4` の前処理とペア評価を移植したもの。
+
+入力は 3 種類(拡張子と中身から自動で見分ける):
+
+| 入力 | 見分け方 | 出力 |
+|---|---|---|
+| MS-DIAL5 の AlignmentResult(`.arf2`) | 拡張子 `.arf2` | MS-DIAL のタグファイル `_tags.xml` |
+| MS-DIAL のアライメント結果の txt(`Height_1_….txt` など) | `.txt` / `.tsv` で、先頭 20 行以内に `Alignment ID` の列名の行がある | 判定結果の列を足した表 `_rtcurated.tsv` |
+| 汎用 TSV(RT・C・DB・Ontology の列を持つ表。MS-DIAL 以外のツールの結果など) | 上のどちらでもない `.txt` / `.tsv` | 判定結果の列を足した表 `_rtcurated.tsv` |
 
 ## セットアップ
 
@@ -44,6 +52,31 @@ MS-DIAL でそのアライメントを開くと、判定結果がタグとして
 | `--no-oxygen-tag` | オフ(=付ける) | Ontology への酸素数タグ(`;O2` など)付与を無効にする |
 | `--no-ether-split` | オフ(=分ける) | Ether 系の O- / P- を分けずに判定する。既定では `EtherPE_O` / `EtherPE_P` のように別の Ontology にする(P- は二重結合を 1 つ少なく書くため) |
 | `--exclude-ontology NAME` | なし | 指定した Ontology をペア評価から外す(複数回指定可、`OxPC` で `OxPC;O2` なども外れる) |
+| `--rt-column` / `--c-column` / `--db-column` / `--ontology-column NAME` | `RT` / `C` / `DB` / `Ontology` | 汎用 TSV の列名(大文字小文字は区別しない) |
+| `--use-column NAME` | なし | この列が `FALSE` / `0` / `no` の行を判定から完全に外す(txt / 汎用 TSV のみ) |
+
+## MS-DIAL の txt と汎用 TSV
+
+```
+uv run rtcurate Height_1_2026_11_09_16_43_20.txt
+uv run rtcurate other_tool.tsv --rt-column "RT (min)" --c-column Carbon --db-column DoubleBond --ontology-column Class
+uv run rtcurate other_tool.tsv --use-column keep
+```
+
+- 出力は `<入力名>_rtcurated.tsv`(常に出す)。入力の全列を元の順番・元の文字列のまま左に置き、
+  判定結果の列(`rt_group`、`c_s_total`、`db_s_total`、`inclusion`、`pair_evaluated`、`curation`、
+  `exclusion_reason`、`n_miss`、`n_correct`、`n_total`、`miss%`、`exclusion_round`)を右に足す。
+  行は入力と同じ順番・同じ件数。`rt_group` は実際に比べたグループ(補正後の Ontology)。
+- タグファイルは作らない。`--rt-tag` / `--tag-confirmed` を付けるとエラー。
+- MS-DIAL の txt は arf2 と同じ前処理(除外フィルタ、名前からの炭素数・二重結合数、Ontology の補正)をかける。
+  txt の RT は小数 3 桁に丸められているので、RT が同じ値になるペアがあると arf2 と結果が変わることがある。
+- 汎用 TSV では名前を使った処理は何もしない。C・DB・Ontology は列の値をそのまま使う。
+  - RT・C・DB のどれかが空欄の行は `missing_value` として判定から外す。
+  - 数値として読めない値(`NaN`、`inf` も含む)や、C・DB が整数でない値はエラー。
+    ただし `--use-column` が偽の行や Ontology が空の行は確かめない。
+  - n_miss と miss% が同じ候補は、行番号の小さい方から外す。
+  - `--keep-low-score` などの名前を使うオプションは効果がない(付けると注意を表示する)。`--keep-ontology-null` は効く。
+- 文字コードは UTF-8(BOM の有無どちらも)、読めなければ cp932。
 
 ## TSV の読み方(`--tsv`)
 
@@ -60,3 +93,8 @@ MS-DIAL でそのアライメントを開くと、判定結果がタグとして
 ```
 uv run pytest
 ```
+
+実ファイルを使うテストは、次の環境変数でファイルを指定したときだけ動く(無ければスキップする):
+
+- `RTCURATE_TAGGED_XML`: MS-DIAL がタグを書いた `_tags.xml`
+- `RTCURATE_PAIR_TXT` / `RTCURATE_PAIR_ARF2`: 同じアライメントの txt と `.arf2`(自動除外が一致するかを確かめる)

@@ -1,7 +1,11 @@
+import os
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
 from conftest import spots_df
+from test_table import HEADER, META4, write_tsv
 from rtcurate.cli import main
 from rtcurate.tags import read_tags
 
@@ -22,7 +26,7 @@ def test_missing_file_returns_2(capsys, tmp_path):
 
 
 def test_wrong_extension_returns_2(capsys, tmp_path):
-    f = tmp_path / "a.txt"
+    f = tmp_path / "a.csv"
     f.write_text("x")
     assert main([str(f)]) == 2
     assert ".arf2" in capsys.readouterr().err
@@ -212,3 +216,125 @@ def test_sample_with_all_filters_off(sample_arf2, tmp_path):
     df = read(tmp_path / f"{STEM}_rtcurated.tsv")
     assert len(df) == 7955 and df["inclusion"].all()
     assert df["pair_evaluated"].sum() > 1554  # 既定(フィルタあり)のペア評価対象より多い
+
+
+# ---- MS-DIAL の txt と汎用 TSV ----
+
+def msdial_txt(tmp_path) -> Path:
+    """PC 系列 8 件 + RT が外れた 1 件(ID 8)+ low score 1 件(ID 9)の MS-DIAL の txt。"""
+    rows = [[str(i), f"{3.0 + i:.3f}", "700", f"PC {30 + 2 * i}:0", "[M+H]+", "PC", "1", "1"] for i in range(8)]
+    rows.append(["8", "1.000", "700", "PC 48:0", "[M+H]+", "PC", "1", "1"])
+    rows.append(["9", "5.000", "700", "low score: PE 34:1", "[M+H]+", "PE", "1", "1"])
+    return write_tsv(tmp_path / "Height_1.txt", META4 + [HEADER] + rows)
+
+
+def generic_tsv(tmp_path, keep_last=False) -> Path:
+    """PC 5 件は順序どおり。use=FALSE の 6 件目 (30:0, RT 20) を入れると矛盾が生じる。"""
+    rows = [[f"s{i}", f"{rt}", str(c), "0", "PC", "TRUE"]
+            for i, (c, rt) in enumerate([(32, 5), (34, 6), (36, 7), (38, 8), (40, 9)])]
+    rows.append(["s5", "20", "30", "0", "PC", "TRUE" if keep_last else "FALSE"])
+    return write_tsv(tmp_path / "other.tsv", [["ID", "RT", "C", "DB", "Ontology", "keep"]] + rows)
+
+
+def test_msdial_txt_end_to_end(tmp_path, capsys):
+    src = msdial_txt(tmp_path)
+    assert main([str(src)]) == 0
+    out = read(tmp_path / "Height_1_rtcurated.tsv")
+    assert len(out) == 10 and out["Alignment ID"].tolist() == list(range(10))  # 行は入力の順
+    reason = dict(zip(out["Alignment ID"], out["exclusion_reason"].fillna("")))
+    assert reason[8] == "rt_order" and reason[9] == "low_score"
+    assert [r for i, r in reason.items() if i < 8] == [""] * 8
+    assert not list(tmp_path.glob("*_tags.xml"))
+    assert "検出スポット数: 10" in capsys.readouterr().out
+
+
+def test_msdial_txt_write_excluded(tmp_path):
+    assert main([str(msdial_txt(tmp_path)), "-o", str(tmp_path / "o"), "--write-excluded"]) == 0
+    ex = read(tmp_path / "o" / "Height_1_rt_excluded.tsv")
+    assert ex["Alignment ID"].tolist() == [8]
+
+
+def test_msdial_txt_use_column(tmp_path):
+    src = tmp_path / "h.txt"
+    lines = msdial_txt(tmp_path).read_text(encoding="utf-8").splitlines()
+    head = len(META4)
+    lines = [l + "\t" for l in lines[:head]] + [lines[head] + "\tuse"] + \
+            [l + ("\tFALSE" if l.startswith("8\t") else "\tTRUE") for l in lines[head + 1:]]
+    src.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    assert main([str(src), "--use-column", "USE"]) == 0
+    out = read(tmp_path / "h_rtcurated.tsv").set_index("Alignment ID")
+    assert out.loc[8, "exclusion_reason"] == "use_column" and "rt_order" not in set(out["exclusion_reason"].fillna(""))
+
+
+def test_generic_end_to_end_with_use_column(tmp_path):
+    src = generic_tsv(tmp_path)
+    assert main([str(src)]) == 0  # use 列を指定しなければ 6 件目も比べる → 1 件 rt_order
+    assert (read(tmp_path / "other_rtcurated.tsv")["exclusion_reason"] == "rt_order").sum() == 1
+    assert main([str(src), "--use-column", "keep"]) == 0
+    out = read(tmp_path / "other_rtcurated.tsv")
+    assert (out["exclusion_reason"] == "rt_order").sum() == 0
+    assert out.loc[5, "exclusion_reason"] == "use_column" and out.loc[5, "ID"] == "s5"
+
+
+def test_generic_custom_columns(tmp_path):
+    src = write_tsv(tmp_path / "x.tsv", [["rt (min)", "Carbon", "Double", "Class"], ["1.0", "34", "1", "PC"]])
+    assert main([str(src), "--rt-column", "RT (min)", "--c-column", "carbon", "--db-column", "double",
+                 "--ontology-column", "class"]) == 0
+    assert read(tmp_path / "x_rtcurated.tsv").loc[0, "rt_group"] == "PC"
+
+
+def test_generic_prints_row_label(tmp_path, capsys):
+    assert main([str(generic_tsv(tmp_path))]) == 0
+    assert "行数: 6" in capsys.readouterr().out
+
+
+def test_generic_ignored_options_warn(tmp_path, capsys):
+    assert main([str(generic_tsv(tmp_path)), "--keep-low-score", "--no-ether-split",
+                 "--keep-ontology-null"]) == 0
+    err = capsys.readouterr().err
+    assert "効果がありません" in err and "--keep-low-score" in err and "--no-ether-split" in err
+    assert "--keep-ontology-null" not in err
+
+
+@pytest.mark.parametrize("kind,options", [
+    ("txt", ["--rt-tag", "5"]), ("txt", ["--tag-confirmed"]),
+    ("tsv", ["--rt-tag", "3"]), ("tsv", ["--tag-confirmed"]),
+    ("txt", ["--rt-column", "RT"]), ("arf2", ["--rt-column", "RT"]),
+    ("arf2", ["--ontology-column", "X"]), ("arf2", ["--use-column", "keep"]),
+])
+def test_option_input_mismatch_returns_2(kind, options, tmp_path, monkeypatch, capsys):
+    if kind == "arf2":
+        monkeypatch.setattr("rtcurate.cli.load_spots", lambda _: spots_df(WIRING_ROWS))
+        src = tmp_path / "dummy.arf2"
+        src.write_bytes(b"")
+    else:
+        src = msdial_txt(tmp_path) if kind == "txt" else generic_tsv(tmp_path)
+    assert main([str(src), "-o", str(tmp_path / "o"), *options]) == 2
+    assert options[0] in capsys.readouterr().err
+    assert not (tmp_path / "o").exists()
+
+
+def test_table_bad_value_returns_2(tmp_path, capsys):
+    src = write_tsv(tmp_path / "x.tsv", [["RT", "C", "DB", "Ontology"], ["abc", "34", "1", "PC"]])
+    assert main([str(src)]) == 2
+    assert "'RT'" in capsys.readouterr().err
+    assert not (tmp_path / "x_rtcurated.tsv").exists()
+
+
+def test_table_added_column_clash_returns_2(tmp_path, capsys):
+    src = write_tsv(tmp_path / "x.tsv", [["RT", "C", "DB", "Ontology", "curation"], ["1", "34", "1", "PC", "a"]])
+    assert main([str(src)]) == 2
+    assert "curation" in capsys.readouterr().err
+
+
+def test_txt_matches_arf2_on_real_files(tmp_path):
+    # 同じアライメントの txt と arf2 を、環境変数 RTCURATE_PAIR_TXT / RTCURATE_PAIR_ARF2 で渡す
+    txt, arf2 = os.environ.get("RTCURATE_PAIR_TXT"), os.environ.get("RTCURATE_PAIR_ARF2")
+    if not (txt and arf2 and Path(txt).is_file() and Path(arf2).is_file()):
+        pytest.skip("環境変数 RTCURATE_PAIR_TXT と RTCURATE_PAIR_ARF2 で実ファイルを指定してください")
+    assert main([txt, "-o", str(tmp_path)]) == 0
+    assert main([arf2, "-o", str(tmp_path), "--tsv"]) == 0
+    t = read(tmp_path / f"{Path(txt).stem}_rtcurated.tsv")
+    a = read(tmp_path / f"{Path(arf2).stem}_rtcurated.tsv")
+    assert set(t.loc[t["exclusion_reason"] == "rt_order", "Alignment ID"]) == \
+        set(a.loc[a["exclusion_reason"] == "rt_order", "MasterAlignmentID"])
