@@ -3,9 +3,11 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from rtcurate.pair_eval import run
+from rtcurate.preprocess import FilterOptions, preprocess
 from rtcurate.table import (
-    GenericColumns, TableError, apply_use_column, find_column, generic_frame, msdial_spots, read_table,
-    use_mask,
+    ADDED_COLUMNS, GenericColumns, TableError, apply_use_column, find_column, generic_frame, msdial_spots, read_table,
+    check_added_columns, use_mask, write_table,
 )
 
 # MS-DIAL5 の Height_1_….txt と同じ並び: メタ情報の行(1 列目が空)のあとに列名の行
@@ -248,3 +250,53 @@ def test_generic_bad_values_ignored_on_excluded_rows(tmp_path):
     df = generic_frame(t, GenericColumns(), pd.Series([False, True, True]), keep_ontology_null=True)
     assert pd.isna(df.loc[0, "rt"]) and pd.isna(df.loc[1, "rt"]) and df.loc[2, "rt"] == 1.0
     assert df["exclusion_reason"].tolist() == ["use_column", "", ""]
+
+
+def test_write_table_keeps_input_and_appends(tmp_path):
+    t = read_table(write_tsv(tmp_path / "h.txt", META4 + [HEADER, ROW_A, ROW_B]))
+    result = run(preprocess(msdial_spots(t), FilterOptions()))
+    out = tmp_path / "o" / "h_rtcurated.tsv"
+    write_table(t, result, out)
+    raw = out.read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf")
+    lines = raw.decode("utf-8-sig").splitlines()
+    assert lines[0].split("\t") == HEADER + ADDED_COLUMNS  # "1" が 2 つのまま
+    assert lines[1].split("\t")[:len(HEADER)] == ROW_A     # "13.793" などが元の文字列のまま
+    assert lines[2].split("\t")[:len(HEADER)] == ROW_B
+    assert len(lines) == 3
+
+
+def test_added_columns_order():
+    assert ADDED_COLUMNS == ["rt_group", "c_s_total", "db_s_total", "inclusion", "pair_evaluated", "curation",
+                             "exclusion_reason", "n_miss", "n_correct", "n_total", "miss%", "exclusion_round"]
+
+
+def test_write_table_rt_order_only(tmp_path):
+    # PC 系列 6 件 + RT が大きく外れた 1 件(入力の 2 行目)
+    rows = [[str(i), f"{rt:.3f}", "700", f"PC {c}:0", "[M+H]+", "PC", "1", "1"]
+            for i, (c, rt) in enumerate([(30, 1), (48, 0.5), (32, 2), (34, 3), (36, 4), (38, 5), (40, 6)])]
+    t = read_table(write_tsv(tmp_path / "h.txt", META4 + [HEADER] + rows))
+    result = run(preprocess(msdial_spots(t), FilterOptions()))
+    out = tmp_path / "ex.tsv"
+    write_table(t, result, out, rt_order_only=True)
+    lines = out.read_text(encoding="utf-8-sig").splitlines()
+    assert len(lines) == 2 and lines[1].split("\t")[0] == "1"
+
+
+def test_rt_group_is_corrected_ontology(tmp_path):
+    t = read_table(write_tsv(tmp_path / "h.txt", META4 + [HEADER,
+        ["0", "1.0", "800", "OxPC 34:2;O2", "[M+H]+", "OxPC", "1", "1"]]))
+    result = run(preprocess(msdial_spots(t), FilterOptions()))
+    out = tmp_path / "o.tsv"
+    write_table(t, result, out)
+    back = out.read_text(encoding="utf-8-sig").splitlines()
+    header, row = back[0].split("\t"), back[1].split("\t")
+    assert row[header.index("rt_group")] == "OxPC;O2"
+    assert row[header.index("Ontology")] == "OxPC"  # 入力の列は元のまま
+
+
+def test_check_added_columns_conflict(tmp_path):
+    t = gen(tmp_path, [["a", "1.0", "34", "1", "PC", "x"]], header=["ID", "RT", "C", "DB", "Ontology", "curation"])
+    with pytest.raises(TableError, match="curation"):
+        check_added_columns(t)
+    check_added_columns(gen(tmp_path, [["a", "1.0", "34", "1", "PC", "x"]]))  # ぶつからなければ何もしない

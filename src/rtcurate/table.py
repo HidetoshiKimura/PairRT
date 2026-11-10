@@ -7,6 +7,7 @@
 import csv
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -225,3 +226,29 @@ def generic_frame(table: RawTable, cols: GenericColumns, use: pd.Series | None,
     df["inclusion"] = df["exclusion_reason"] == ""
     df["curation"] = df["inclusion"]
     return df
+
+
+# 判定結果として右に足す列(rt_group は補正後の Ontology。入力にすでに Ontology 列があるので別の名前にする)
+ADDED_COLUMNS = [
+    "rt_group", "c_s_total", "db_s_total", "inclusion", "pair_evaluated", "curation", "exclusion_reason",
+    "n_miss", "n_correct", "n_total", "miss%", "exclusion_round",
+]
+
+
+def check_added_columns(table: RawTable) -> None:
+    """入力に、足す列と同じ名前の列があればエラー(上書きしない)。"""
+    clash = [col for col in ADDED_COLUMNS if col in set(table.frame.columns)]
+    if clash:
+        raise TableError(f"入力に、判定結果の列と同じ名前の列があります: {', '.join(clash)}"
+                         "(列名を変えてから実行してください)")
+
+
+def write_table(table: RawTable, result: pd.DataFrame, path: Path, rt_order_only: bool = False) -> None:
+    """入力の全列を元の文字列のまま左に置き、判定結果の列を右に足して書き出す。行は入力の順のまま。"""
+    added = result.rename(columns={"Ontology": "rt_group"})[ADDED_COLUMNS]
+    out = pd.concat([table.frame, added], axis=1)
+    if rt_order_only:
+        out = out.loc[result["exclusion_reason"] == "rt_order"]
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    out.to_csv(path, sep="	", index=False, encoding="utf_8_sig")
