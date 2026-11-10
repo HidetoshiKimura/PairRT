@@ -4,6 +4,7 @@
 すべての列を文字列のまま読み、判定に使う列だけを別に数値へ変換する。
 """
 
+import csv
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +17,7 @@ from rtcurate.preprocess import is_null_ontology
 MSDIAL_HEADER_SCAN = 20  # MS-DIAL の txt の列名の行を探す範囲(先頭からの行数)
 _MSDIAL_REQUIRED = {"Average Rt(min)", "Metabolite name", "Ontology"}
 _ENCODINGS = ("utf-8-sig", "cp932")  # Excel で日本語を含む表を保存すると cp932 になる
+_CSV_FIELD_LIMIT = 2**31 - 1
 
 
 class TableError(ValueError):
@@ -28,17 +30,30 @@ class RawTable:
     frame: pd.DataFrame  # 列名は元のまま(重複あり)、値はすべて str
 
 
-def _read_rows(path: str | os.PathLike) -> list[list[str]]:
-    """タブと改行だけで区切る。MS-DIAL は値を引用符で囲まないので、" も値の一部としてそのまま読む
-    (csv モジュールの引用符の解釈を使うと、" で始まる値から次の " までの行がまとめられて消える)。"""
+def _split_rows(f, csv_format: bool) -> list[list[str]]:
+    if not csv_format:
+        # タブと改行だけで区切る。MS-DIAL は値を引用符で囲まないので、" も値の一部としてそのまま読む
+        # (csv モジュールの引用符の解釈を使うと、" で始まる値から次の " までの行がまとめられて消える)
+        return [line.split("\t") for line in f.read().split("\n")]
+    # CSV は値を " で囲む書き方が一般的なので、囲まれた中のカンマは値の一部として読む
+    old_limit = csv.field_size_limit(_CSV_FIELD_LIMIT)  # MS/MS スペクトルの列は長いことがある
+    try:
+        return list(csv.reader(f))
+    except csv.Error as e:
+        raise TableError(f"CSV として読めません: {e}") from e
+    finally:
+        csv.field_size_limit(old_limit)
+
+
+def _read_rows(path: str | os.PathLike, csv_format: bool) -> list[list[str]]:
     with open(path, "rb") as f:
         if f.read(2) in (b"\xff\xfe", b"\xfe\xff"):
             raise TableError("UTF-16 のファイルには対応していません(Excel なら「テキスト(タブ区切り)」"
                              "か UTF-8 で保存し直してください)")
     for encoding in _ENCODINGS:
         try:
-            with open(path, encoding=encoding) as f:
-                return [line.split("\t") for line in f.read().split("\n")]
+            with open(path, encoding=encoding, newline="" if csv_format else None) as f:
+                return _split_rows(f, csv_format)
         except UnicodeDecodeError:
             continue
     raise TableError(f"文字コードを読み取れません({' / '.join(_ENCODINGS)} のどちらでもありません)")
@@ -48,22 +63,34 @@ def _is_msdial_header(row: list[str]) -> bool:
     return bool(row) and row[0].strip() == "Alignment ID" and _MSDIAL_REQUIRED <= set(row)
 
 
-def read_table(path: str | os.PathLike) -> RawTable:
-    """タブ区切りの表を読み、MS-DIAL の txt か汎用 TSV かを見分けて返す。"""
-    rows = _read_rows(path)
+def read_table(path: str | os.PathLike, header_row: int | None = None) -> RawTable:
+    """表を読み、MS-DIAL の txt か汎用 TSV かを見分けて返す。`.csv` はカンマ区切り、それ以外はタブ区切り。
+
+    header_row(1 始まり)を渡すと、その行を列名の行にする。渡さなければ自動で探す。
+    """
+    rows = _read_rows(path, csv_format=Path(path).suffix.lower() == ".csv")
     while rows and not any(cell.strip() for cell in rows[-1]):  # ファイル末尾の空行
         rows.pop()
     if not rows:
         raise TableError("表が空です")
 
-    header_at = next((i for i, row in enumerate(rows[:MSDIAL_HEADER_SCAN]) if _is_msdial_header(row)),
-                     None)
-    kind = "generic" if header_at is None else "msdial_txt"
-    header_at = header_at or 0
+    if header_row is not None:
+        if not 1 <= header_row <= len(rows):
+            raise TableError(f"--header-row {header_row} は範囲外です(1〜{len(rows)} 行目で指定してください)")
+        header_at = header_row - 1
+        kind = "msdial_txt" if _is_msdial_header(rows[header_at]) else "generic"
+    else:
+        found = next((i for i, row in enumerate(rows[:MSDIAL_HEADER_SCAN]) if _is_msdial_header(row)), None)
+        kind = "generic" if found is None else "msdial_txt"
+        header_at = found or 0
     header = rows[header_at]
 
     data = rows[header_at + 1:]
     for offset, row in enumerate(data):
+        for j, cell in enumerate(row):  # 出力はタブ区切りなので、タブや改行を含む値は書けない(CSV でだけ起こる)
+            if "\t" in cell or "\n" in cell or "\r" in cell:
+                column = header[j] if j < len(header) else f"{j + 1} 列目"
+                raise TableError(f"列 '{column}' の {offset + 1} 件目の値にタブか改行が含まれています")
         if len(row) != len(header):
             line = header_at + offset + 2  # ファイル上の行番号(1 始まり)
             raise TableError(f"{line} 行目の列数({len(row)})が列名の行の列数({len(header)})と違います")
@@ -129,9 +156,11 @@ def msdial_spots(table: RawTable) -> pd.DataFrame:
     if bad.any():
         raise _bad_values("Alignment ID", cols["MasterAlignmentID"], bad, "整数でない値があります")
     ids = ids.astype(int)
-    duplicated = ids[ids.duplicated()]
-    if not duplicated.empty:
-        raise TableError(f"Alignment ID が重複しています: {sorted(set(duplicated))[:10]}")
+    # Pos と Neg をまとめた表などで重複していたら、行番号(0 始まり)を ID の代わりに使う。
+    # txt からはタグを作らないので、ID は同点のときに外す順番にしか使わない
+    ids_from_rows = bool(ids.duplicated().any())
+    if ids_from_rows:
+        ids = pd.Series(np.arange(len(ids)), index=ids.index)
 
     df = pd.DataFrame({
         "MasterAlignmentID": ids,
@@ -143,6 +172,7 @@ def msdial_spots(table: RawTable) -> pd.DataFrame:
     }, index=table.frame.index)
     for col in ("name", "Ontology", "Adduct_type"):
         df[col] = df[col].where(df[col] != "null", "")
+    df.attrs["ids_from_rows"] = ids_from_rows
     return df
 
 

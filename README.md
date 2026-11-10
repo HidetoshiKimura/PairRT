@@ -9,8 +9,10 @@
 | 入力 | 見分け方 | 出力 |
 |---|---|---|
 | MS-DIAL5 の AlignmentResult(`.arf2`) | 拡張子 `.arf2` | MS-DIAL のタグファイル `_tags.xml` |
-| MS-DIAL のアライメント結果の txt(`Height_1_….txt` など) | `.txt` / `.tsv` で、先頭 20 行以内に `Alignment ID` の列名の行がある | 判定結果の列を足した表 `_rtcurated.tsv` |
-| 汎用 TSV(RT・C・DB・Ontology の列を持つ表。MS-DIAL 以外のツールの結果など) | 上のどちらでもない `.txt` / `.tsv` | 判定結果の列を足した表 `_rtcurated.tsv` |
+| MS-DIAL のアライメント結果の txt(`Height_1_….txt` など) | `.txt` / `.tsv` / `.csv` で、先頭 20 行以内に `Alignment ID` の列名の行がある | 判定結果の列を足した表 `_rtcurated.tsv` |
+| 汎用 TSV(RT・C・DB・Ontology の列を持つ表。MS-DIAL 以外のツールの結果など) | 上のどちらでもない `.txt` / `.tsv` / `.csv` | 判定結果の列を足した表 `_rtcurated.tsv` |
+
+`.txt` / `.tsv` はタブ区切り、`.csv` はカンマ区切りとして読む。
 
 ## セットアップ
 
@@ -54,6 +56,7 @@ MS-DIAL でそのアライメントを開くと、判定結果がタグとして
 | `--exclude-ontology NAME` | なし | 指定した Ontology をペア評価から外す(複数回指定可、`OxPC` で `OxPC;O2` なども外れる) |
 | `--rt-column` / `--c-column` / `--db-column` / `--ontology-column NAME` | `RT` / `C` / `DB` / `Ontology` | 汎用 TSV の列名(大文字小文字は区別しない) |
 | `--use-column NAME` | なし | この列が `FALSE` / `0` / `no` の行を判定から完全に外す(txt / 汎用 TSV のみ) |
+| `--header-row N` | 自動で探す | 列名の行をファイルの N 行目(1 始まり、Excel の行番号と同じ)に指定する(txt / TSV / CSV のみ) |
 
 ## MS-DIAL の txt と汎用 TSV
 
@@ -76,7 +79,13 @@ uv run rtcurate other_tool.tsv --use-column keep
     ただし `--use-column` が偽の行や Ontology が空の行は確かめない。
   - n_miss と miss% が同じ候補は、行番号の小さい方から外す。
   - `--keep-low-score` などの名前を使うオプションは効果がない(付けると注意を表示する)。`--keep-ontology-null` は効く。
-- 文字コードは UTF-8(BOM の有無どちらも)、読めなければ cp932。
+- MS-DIAL の txt で `Alignment ID` が重複している場合(Pos と Neg をまとめた表など)は、同点のときに外す順番に
+  ID の代わりに行番号を使う(注意を表示する)。Pos と Neg の行は、同じ Ontology なら同じグループで比べられる。
+- 列名の行は自動で探す(MS-DIAL の形なら先頭 20 行以内の `Alignment ID` の行、それ以外は 1 行目)。
+  表の上に説明の行があるファイルは `--header-row N` で指定する。指定した行より上は出力に書かない。
+- `.csv` では `"` で囲まれた値の中のカンマも値の一部として読む。`.txt` / `.tsv` では `"` も普通の文字として読む。
+  出力はタブ区切りなので、タブや改行を含む値があるとエラー。
+- 文字コードは UTF-8(BOM の有無どちらも)、読めなければ cp932。UTF-16 は非対応。
 
 ## TSV の読み方(`--tsv`)
 

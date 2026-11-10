@@ -132,8 +132,18 @@ def test_msdial_spots_matches_load_spots_shape(tmp_path):
     assert df["MasterAlignmentID"].dtype.kind == "i" and df["rt"].dtype.kind == "f"
 
 
+def test_msdial_spots_unique_ids_are_used(tmp_path):
+    df = msdial_spots(msdial(tmp_path, [["87"] + ROW_A[1:], ["38"] + ROW_B[1:]]))
+    assert df["MasterAlignmentID"].tolist() == [87, 38] and not df.attrs.get("ids_from_rows")
+
+
+def test_msdial_spots_duplicate_ids_use_row_number(tmp_path):
+    # Pos と Neg をまとめた表などで Alignment ID が重複していたら、行番号(0 始まり)を ID の代わりに使う
+    df = msdial_spots(msdial(tmp_path, [["87"] + ROW_A[1:], ["38"] + ROW_B[1:], ["87"] + ROW_B[1:]]))
+    assert df["MasterAlignmentID"].tolist() == [0, 1, 2] and df.attrs["ids_from_rows"]
+
+
 @pytest.mark.parametrize("rows,header,match", [
-    ([ROW_A, ROW_A], HEADER, "重複"),
     ([["x"] + ROW_A[1:]], HEADER, "Alignment ID"),
     ([["0", "abc"] + ROW_A[2:]], HEADER, "Average Rt"),
     ([["0", "1.0", "abc"] + ROW_A[3:]], HEADER, "Average Mz"),
@@ -328,3 +338,68 @@ def test_utf16_file_gets_clear_error(tmp_path):
     p.write_bytes("RT\tC\tDB\tOntology\r\n1\t34\t1\tPC\r\n".encode("utf-16"))  # BOM 付き UTF-16LE
     with pytest.raises(TableError, match="UTF-16"):
         read_table(p)
+
+
+# ---- CSV と --header-row ----
+
+def write_csv(path, text: str) -> Path:
+    path.write_bytes(text.encode("utf-8"))  # 改行を OS の既定に変換せず、書いたとおりに保存する
+    return path
+
+
+def test_csv_msdial_detected(tmp_path):
+    lines = META4 + [HEADER, ROW_A, ROW_B]
+    t = read_table(write_csv(tmp_path / "m.csv", "\r\n".join(",".join(r) for r in lines) + "\r\n"))
+    assert t.kind == "msdial_txt" and list(t.frame.columns) == HEADER and t.frame.iloc[1, 1] == "14.100"
+
+
+def test_csv_quoted_field_keeps_comma(tmp_path):
+    t = read_table(write_csv(tmp_path / "g.csv", 'RT,C,DB,Ontology,Note\n1.0,34,1,PC,"a, b"\n'))
+    assert t.kind == "generic" and t.frame.iloc[0, 4] == "a, b"
+    out = tmp_path / "o.tsv"
+    write_table(t, run(generic_frame(t, GenericColumns(), None, False)), out)
+    assert out.read_text(encoding="utf-8-sig").splitlines()[1].split("\t")[4] == "a, b"
+
+
+@pytest.mark.parametrize("value", ['"x\ty"', '"x\ny"'])
+def test_csv_value_with_tab_or_newline_raises(tmp_path, value):
+    p = write_csv(tmp_path / "g.csv", f"RT,C,DB,Ontology,Note\n1.0,34,1,PC,{value}\n")
+    with pytest.raises(TableError, match="Note"):
+        read_table(p)
+
+
+def test_csv_column_count_mismatch_raises(tmp_path):
+    with pytest.raises(TableError, match="2 行目"):
+        read_table(write_csv(tmp_path / "g.csv", "RT,C\n1,2,3\n"))
+
+
+def test_tsv_is_not_split_on_commas(tmp_path):
+    t = read_table(write_tsv(tmp_path / "g.tsv", [["RT", "Note"], ["1.0", "a, b"]]))
+    assert list(t.frame.columns) == ["RT", "Note"] and t.frame.iloc[0, 1] == "a, b"
+
+
+def test_header_row_selects_generic_header(tmp_path):
+    p = write_tsv(tmp_path / "g.tsv", [["exported by tool X", ""], ["", ""], ["RT", "C"], ["1.0", "34"]])
+    t = read_table(p, header_row=3)
+    assert t.kind == "generic" and list(t.frame.columns) == ["RT", "C"] and len(t.frame) == 1
+
+
+def test_header_row_selects_msdial_header_beyond_auto_scan(tmp_path):
+    meta = [["", "", "", "", "", f"m{i}", "", ""] for i in range(25)]
+    p = write_tsv(tmp_path / "h.txt", meta + [HEADER, ROW_A])
+    assert read_table(p).kind == "generic"                    # 自動では 20 行目までしか探さない
+    t = read_table(p, header_row=26)
+    assert t.kind == "msdial_txt" and len(t.frame) == 1
+
+
+def test_header_row_column_count_error_uses_file_line(tmp_path):
+    p = write_tsv(tmp_path / "g.tsv", [["x"], ["RT", "C"], ["1.0"]])
+    with pytest.raises(TableError, match="3 行目"):
+        read_table(p, header_row=2)
+
+
+@pytest.mark.parametrize("row", [0, -1, 4])
+def test_header_row_out_of_range_raises(tmp_path, row):
+    p = write_tsv(tmp_path / "g.tsv", [["RT", "C"], ["1.0", "34"], ["2.0", "36"]])
+    with pytest.raises(TableError, match=str(row)):
+        read_table(p, header_row=row)

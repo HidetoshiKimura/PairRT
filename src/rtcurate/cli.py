@@ -37,7 +37,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     p.add_argument("input", type=Path,
                    help="MS-DIAL5 の AlignmentResult (.arf2)、MS-DIAL のアライメント結果の txt、"
-                        "または RT・C・DB・Ontology の列を持つ TSV (.txt / .tsv)")
+                        "または RT・C・DB・Ontology の列を持つ表 (.txt / .tsv はタブ区切り、.csv はカンマ区切り)")
     p.add_argument("-o", "--out-dir", type=Path,
                    help="出力先フォルダ(既定: 入力と同じフォルダ。MS-DIAL はここの <入力名>_tags.xml を読む)")
     p.add_argument("--tsv", action="store_true",
@@ -67,6 +67,8 @@ def _parser() -> argparse.ArgumentParser:
         p.add_argument(option, metavar="NAME", help=f"汎用 TSV の列名(既定 {default}。大文字小文字は区別しない)")
     p.add_argument("--use-column", metavar="NAME",
                    help="この列が FALSE / 0 / no の行を判定から完全に外す(txt / 汎用 TSV のみ)")
+    p.add_argument("--header-row", type=int, metavar="N",
+                   help="列名の行をファイルの N 行目(1 始まり)に指定する(txt / TSV / CSV のみ。既定: 自動で探す)")
     return p
 
 
@@ -94,8 +96,8 @@ def main(argv: list[str] | None = None) -> int:
     src: Path = args.input
 
     suffix = src.suffix.lower()
-    if suffix not in (".arf2", ".txt", ".tsv"):
-        return _error(f".arf2 / .txt / .tsv のファイルを指定してください: {src}")
+    if suffix not in (".arf2", ".txt", ".tsv", ".csv"):
+        return _error(f".arf2 / .txt / .tsv / .csv のファイルを指定してください: {src}")
     if not src.is_file():
         return _error(f"ファイルが見つかりません: {src}")
 
@@ -115,9 +117,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _main_arf2(args, src: Path, out_dir: Path, opts: FilterOptions) -> int:
-    wrong = _given(args, {**_COLUMN_OPTIONS, "use_column": "--use-column"})
+    wrong = _given(args, {**_COLUMN_OPTIONS, "use_column": "--use-column", "header_row": "--header-row"})
     if wrong:
-        return _error(f"{', '.join(wrong)} は txt / TSV の入力でだけ使えます")
+        return _error(f"{', '.join(wrong)} は txt / TSV / CSV の入力でだけ使えます")
     rt_tag = DEFAULT_RT_TAG if args.rt_tag is None else args.rt_tag
 
     tags_path = out_dir / f"{src.stem}_tags.xml"
@@ -166,7 +168,7 @@ def _main_table(args, src: Path, out_dir: Path, opts: FilterOptions) -> int:
     if wrong:
         return _error(f"{', '.join(wrong)} は .arf2 の入力でだけ使えます(txt / TSV からはタグファイルを作りません)")
     try:
-        table = read_table(src)
+        table = read_table(src, header_row=args.header_row)
         wrong = _given(args, _COLUMN_OPTIONS) if table.kind == "msdial_txt" else []
         if wrong:
             return _error(f"{', '.join(wrong)} は汎用 TSV でだけ使えます({src} は MS-DIAL の txt です)")
@@ -193,7 +195,10 @@ def _main_table(args, src: Path, out_dir: Path, opts: FilterOptions) -> int:
 def _table_frame(args, table: RawTable, opts: FilterOptions) -> pd.DataFrame:
     """txt / 汎用 TSV から、pair_eval.run に渡す表を作る。"""
     if table.kind == "msdial_txt":
-        df = preprocess(msdial_spots(table), opts)
+        spots = msdial_spots(table)
+        if spots.attrs["ids_from_rows"]:
+            print("注意: Alignment ID が重複しているので、同点のときに外す順番には行番号を使います", file=sys.stderr)
+        df = preprocess(spots, opts)
         return df if args.use_column is None else apply_use_column(df, use_mask(table.frame, args.use_column))
 
     ignored = _given(args, _NAME_OPTIONS)

@@ -26,7 +26,7 @@ def test_missing_file_returns_2(capsys, tmp_path):
 
 
 def test_wrong_extension_returns_2(capsys, tmp_path):
-    f = tmp_path / "a.csv"
+    f = tmp_path / "a.xlsx"
     f.write_text("x")
     assert main([str(f)]) == 2
     assert ".arf2" in capsys.readouterr().err
@@ -338,3 +338,38 @@ def test_txt_matches_arf2_on_real_files(tmp_path):
     a = read(tmp_path / f"{Path(arf2).stem}_rtcurated.tsv")
     assert set(t.loc[t["exclusion_reason"] == "rt_order", "Alignment ID"]) == \
         set(a.loc[a["exclusion_reason"] == "rt_order", "MasterAlignmentID"])
+
+
+def test_generic_csv_end_to_end(tmp_path, capsys):
+    src = tmp_path / "other.csv"
+    src.write_text("ID,RT,C,DB,Ontology\n" + "".join(
+        f"s{i},{rt},{c},0,PC\n" for i, (c, rt) in enumerate([(32, 5), (34, 6), (36, 7), (38, 8), (40, 9)])),
+        encoding="utf-8")
+    assert main([str(src)]) == 0
+    out = read(tmp_path / "other_rtcurated.tsv")
+    assert out["ID"].tolist() == [f"s{i}" for i in range(5)] and "rt_group" in out.columns
+    assert "行数: 5" in capsys.readouterr().out
+
+
+def test_header_row_option(tmp_path):
+    src = write_tsv(tmp_path / "x.tsv", [["# tool X export"], ["RT", "C", "DB", "Ontology"], ["1.0", "34", "1", "PC"]])
+    assert main([str(src)]) == 2  # 自動では 1 行目を列名にするので、列が足りない
+    assert main([str(src), "--header-row", "2"]) == 0
+    assert read(tmp_path / "x_rtcurated.tsv").loc[0, "rt_group"] == "PC"
+
+
+def test_header_row_with_arf2_returns_2(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("rtcurate.cli.load_spots", lambda _: spots_df(WIRING_ROWS))
+    src = tmp_path / "dummy.arf2"
+    src.write_bytes(b"")
+    assert main([str(src), "-o", str(tmp_path / "o"), "--header-row", "2"]) == 2
+    assert "--header-row" in capsys.readouterr().err
+
+
+def test_msdial_txt_duplicate_ids_use_row_number(tmp_path, capsys):
+    rows = [[str(i % 3), f"{3.0 + i:.3f}", "700", f"PC {30 + 2 * i}:0", "[M+H]+", "PC", "1", "1"] for i in range(6)]
+    src = write_tsv(tmp_path / "merged.txt", META4 + [HEADER] + rows)
+    assert main([str(src)]) == 0
+    assert "重複" in capsys.readouterr().err
+    out = read(tmp_path / "merged_rtcurated.tsv")
+    assert out["Alignment ID"].tolist() == [0, 1, 2, 0, 1, 2]  # 入力の ID は元のまま出力に残る
