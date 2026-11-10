@@ -32,10 +32,10 @@ def write_excluded(df: pd.DataFrame, path: Path) -> None:
     _write(df.loc[df["exclusion_reason"] == "rt_order"], path)
 
 
-def summary(df: pd.DataFrame) -> str:
+def summary(df: pd.DataFrame, total_label: str = "検出スポット数") -> str:
     pair_evaluated = df["pair_evaluated"].astype(bool)
     rows = [
-        ("検出スポット数", len(df)),
+        (total_label, len(df)),
         ("前処理フィルタ後", int(df["inclusion"].astype(bool).sum())),
         ("ペア評価対象", int(pair_evaluated.sum())),
         ("RT順序で自動除外", int((df["exclusion_reason"] == "rt_order").sum())),

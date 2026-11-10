@@ -51,3 +51,7 @@ def test_summary_labels_and_values(evaluated_df):
     for label, value in [("検出スポット数", 11), ("前処理フィルタ後", 10), ("ペア評価対象", 9),
                          ("RT順序で自動除外", 1), ("ペア評価で残ったもの", 8)]:
         assert f"{label}: {value}" in s
+
+
+def test_summary_custom_total_label(evaluated_df):
+    assert summary(evaluated_df, total_label="行数").startswith("行数: 11")
