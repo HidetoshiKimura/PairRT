@@ -4,7 +4,6 @@
 すべての列を文字列のまま読み、判定に使う列だけを別に数値へ変換する。
 """
 
-import csv
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,10 +29,16 @@ class RawTable:
 
 
 def _read_rows(path: str | os.PathLike) -> list[list[str]]:
+    """タブと改行だけで区切る。MS-DIAL は値を引用符で囲まないので、" も値の一部としてそのまま読む
+    (csv モジュールの引用符の解釈を使うと、" で始まる値から次の " までの行がまとめられて消える)。"""
+    with open(path, "rb") as f:
+        if f.read(2) in (b"\xff\xfe", b"\xfe\xff"):
+            raise TableError("UTF-16 のファイルには対応していません(Excel なら「テキスト(タブ区切り)」"
+                             "か UTF-8 で保存し直してください)")
     for encoding in _ENCODINGS:
         try:
-            with open(path, encoding=encoding, newline="") as f:
-                return list(csv.reader(f, delimiter="\t"))
+            with open(path, encoding=encoding) as f:
+                return [line.split("\t") for line in f.read().split("\n")]
         except UnicodeDecodeError:
             continue
     raise TableError(f"文字コードを読み取れません({' / '.join(_ENCODINGS)} のどちらでもありません)")
@@ -246,9 +251,12 @@ def check_added_columns(table: RawTable) -> None:
 def write_table(table: RawTable, result: pd.DataFrame, path: Path, rt_order_only: bool = False) -> None:
     """入力の全列を元の文字列のまま左に置き、判定結果の列を右に足して書き出す。行は入力の順のまま。"""
     added = result.rename(columns={"Ontology": "rt_group"})[ADDED_COLUMNS]
-    out = pd.concat([table.frame, added], axis=1)
-    if rt_order_only:
-        out = out.loc[result["exclusion_reason"] == "rt_order"]
+    keep = (result["exclusion_reason"] == "rt_order") if rt_order_only else pd.Series(True, index=result.index)
+    # 足す列の書式(NA は空欄など)は arf2 の TSV と同じ to_csv に任せる。入力の列は引用符を付けずにそのまま書く
+    added_lines = added.loc[keep].to_csv(sep="\t", index=False, lineterminator="\n").split("\n")
+    input_lines = ["\t".join(table.frame.columns)] + ["\t".join(row) for row in table.frame.loc[keep].itertuples(
+        index=False, name=None)]
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    out.to_csv(path, sep="	", index=False, encoding="utf_8_sig")
+    with open(path, "w", encoding="utf_8_sig") as f:  # 改行は arf2 の TSV と同じく OS の既定
+        f.write("".join(f"{a}\t{b}\n" for a, b in zip(input_lines, added_lines)))

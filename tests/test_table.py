@@ -300,3 +300,31 @@ def test_check_added_columns_conflict(tmp_path):
     with pytest.raises(TableError, match="curation"):
         check_added_columns(t)
     check_added_columns(gen(tmp_path, [["a", "1.0", "34", "1", "PC", "x"]]))  # ぶつからなければ何もしない
+
+
+def test_quote_at_start_of_field_is_kept_verbatim(tmp_path):
+    # MS-DIAL は値を引用符で囲まない。" で始まる値があっても、行をまとめずにそのまま読んで書き戻す
+    rows = [ROW_A[:3] + ['"a'] + ROW_A[4:], ROW_B, ["2"] + ROW_B[1:3] + ['b"'] + ROW_B[4:], ROW_B[:0] + ["3"] + ROW_B[1:]]
+    src = write_tsv(tmp_path / "h.txt", META4 + [HEADER] + rows)
+    t = read_table(src)
+    assert len(t.frame) == 4 and t.frame.iloc[0, 3] == '"a' and t.frame.iloc[2, 3] == 'b"'
+    out = tmp_path / "o.tsv"
+    write_table(t, run(preprocess(msdial_spots(t), FilterOptions())), out)
+    lines = out.read_text(encoding="utf-8-sig").splitlines()
+    assert len(lines) == 5
+    assert [l.split("\t")[:len(HEADER)] for l in lines[1:]] == rows
+
+
+def test_quotes_inside_field_are_written_verbatim(tmp_path):
+    t = gen(tmp_path, [["a\"b", "1.0", "34", "1", "PC", '"quoted"']])
+    out = tmp_path / "o.tsv"
+    write_table(t, run(generic_frame(t, GenericColumns(), None, False)), out)
+    row = out.read_text(encoding="utf-8-sig").splitlines()[1].split("\t")
+    assert row[0] == 'a"b' and row[5] == '"quoted"'
+
+
+def test_utf16_file_gets_clear_error(tmp_path):
+    p = tmp_path / "x.txt"
+    p.write_bytes("RT\tC\tDB\tOntology\r\n1\t34\t1\tPC\r\n".encode("utf-16"))  # BOM 付き UTF-16LE
+    with pytest.raises(TableError, match="UTF-16"):
+        read_table(p)
