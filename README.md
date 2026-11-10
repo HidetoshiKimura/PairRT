@@ -108,3 +108,7 @@ uv run pytest
 
 - `RTCURATE_TAGGED_XML`: MS-DIAL がタグを書いた `_tags.xml`
 - `RTCURATE_PAIR_TXT` / `RTCURATE_PAIR_ARF2`: 同じアライメントの txt と `.arf2`(自動除外が一致するかを確かめる)
+
+## ライセンス
+
+MIT License([LICENSE](LICENSE))
