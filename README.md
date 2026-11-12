@@ -16,17 +16,68 @@
 
 ## セットアップ
 
+[uv](https://docs.astral.sh/uv/) と git が必要(依存パッケージの `msdialio` を GitHub から取ってくるため)。
+Python は uv が用意する(3.10 以上)。
+
 ```
+git clone https://github.com/HidetoshiKimura/PairRT.git
+cd PairRT
 uv sync
 ```
 
 ## 使い方
 
 ```
-uv run pairrt AlignmentResult_xxx.arf2 [options]
+uv run pairrt <入力ファイル> [options]
 ```
 
-1 回の実行で 1 ファイル(1 極性)を処理する。Neg と Pos はそれぞれ実行する。
+- `uv run` はこのフォルダ(`pyproject.toml` のあるフォルダ)の中で実行する。
+  別のフォルダから使うときは `uv run --project <PairRT のフォルダ> pairrt <入力ファイル>`。
+- パスに空白や日本語を含むときは `"…"` で囲む。
+- 1 回の実行で 1 ファイルを処理する。arf2 は 1 ファイル = 1 極性なので、Neg と Pos はそれぞれ実行する。
+- 終了コードは、成功なら 0、入力や出力の誤りで止まったら 2。止まったときは何も書き出さない
+  (ただし `--tsv` などで複数のファイルを書く途中で失敗した場合は、そこまでに書いたファイルが残る)。
+
+### 例 1: MS-DIAL5 の `.arf2` にタグを付ける(基本の使い方)
+
+1. MS-DIAL を閉じる。開いたままだと、MS-DIAL が終了時などにタグファイルを書き戻し、pairrt の結果が消えることがある。
+2. MS-DIAL5 のプロジェクトフォルダにある `AlignmentResult_….arf2` を指定して実行する。
+
+   ```
+   uv run pairrt "C:\data\project\AlignmentResult_2026_01_01_00_00_00.arf2"
+   ```
+
+3. 画面に件数の要約と、書き出したファイルが表示される。
+
+   ```
+   検出スポット数: 8000
+   前処理フィルタ後: 2500
+   ペア評価対象: 1500
+   RT順序で自動除外: 100
+   ペア評価で残ったもの: 1400
+   タグ: C:\data\project\AlignmentResult_2026_01_01_00_00_00_tags.xml
+   ```
+
+   - 検出スポット数:アライメントのスポット数
+   - 前処理フィルタ後:low score、MS2 なし、Ontology なしなどを除いた残り
+   - ペア評価対象:そのうち、名前から炭素数・二重結合数が取れて、RT の比較にかけたもの
+   - RT順序で自動除外:RT 順序が矛盾するとして外したもの(タグを付けたもの)
+4. MS-DIAL でプロジェクトとそのアライメントを開くと、外したスポットに Overannotation(5)のタグが付いて表示される。
+   そのあと、MS-DIAL で手作業のキュレーションを続ける。
+
+判定の中身も見たいときは、表も一緒に出す:
+
+```
+uv run pairrt "C:\data\project\AlignmentResult_2026_01_01_00_00_00.arf2" --tsv --write-excluded
+```
+
+`<入力名>_rtcurated.tsv`(全スポットの判定結果)と `<入力名>_rt_excluded.tsv`(外したものだけ)が
+同じフォルダにできる。読み方は下の「TSV の読み方」を参照。
+
+同じ arf2 でもう一度実行してよい(閾値を変えて試すなど)。前回 pairrt が付けたタグは付け直し、
+手作業のタグは残す。表はすでにあるとエラーで止まるので、上書きするときは `--overwrite` を付ける。
+
+### `.arf2` の出力
 
 既定では MS-DIAL のタグファイル `<入力名>_tags.xml` を .arf2 と同じフォルダに 1 つだけ書き出す。
 MS-DIAL でそのアライメントを開くと、判定結果がタグとして表示される。
@@ -66,6 +117,40 @@ uv run pairrt Height_1_2026_11_09_16_43_20.txt
 uv run pairrt other_tool.tsv --rt-column "RT (min)" --c-column Carbon --db-column DoubleBond --ontology-column Class
 uv run pairrt other_tool.tsv --use-column keep
 ```
+
+### 入力の表に必要な列
+
+**MS-DIAL の txt**(列名は MS-DIAL が書き出したまま、大文字小文字も完全に一致させる):
+
+| 列名 | 使い方 |
+|---|---|
+| `Alignment ID` | 同点のときに外す順番(整数) |
+| `Metabolite name` | 名前から炭素数・二重結合数を求め、前処理のフィルタにも使う |
+| `Average Mz` | 数値として読む |
+| `Average Rt(min)` | RT |
+| `Ontology` | この値ごとにペアを比べる |
+| `Adduct type` | 読むだけ(判定には使わない) |
+
+**汎用 TSV**(列名は大文字小文字を区別しない。名前が違うときはオプションで指定する):
+
+| 列名(既定) | 必須 | 中身 | 列名を変えるオプション |
+|---|---|---|---|
+| `RT` | 必須 | 保持時間(数値) | `--rt-column` |
+| `C` | 必須 | 炭素数(整数) | `--c-column` |
+| `DB` | 必須 | 二重結合数(整数) | `--db-column` |
+| `Ontology` | 必須 | 脂質クラス。この値ごとにペアを比べる | `--ontology-column` |
+| 任意の名前 | 任意 | 判定に使うかどうか(`TRUE` / `FALSE`、`1` / `0`、`yes` / `no`) | `--use-column` で指定したときだけ使う |
+
+- C・DB は名前から求めないので、自分で列を用意する(MS-DIAL の txt にこの列は無い)。
+- `Ontology` が空、`Unknown`、`null`、`nan` の行は判定から外す(`--keep-ontology-null` で残す)。
+- 上の列に当たる列が 2 つ以上ある(大文字小文字の違いだけのものも含む)とエラー。
+- 上の列以外は何列あってもよく(同じ名前の列があってもよい)、出力にそのまま残る。
+
+**どちらの入力でも使えない列名**: `rt_group`、`c_s_total`、`db_s_total`、`inclusion`、`pair_evaluated`、`curation`、
+`exclusion_reason`、`n_miss`、`n_correct`、`n_total`、`miss%`、`exclusion_round`。
+判定結果として右に足す列と同じ名前なので、入力にあるとエラーで止まる(列名を変えてから実行する)。
+
+### 出力
 
 - 出力は `<入力名>_rtcurated.tsv`(常に出す)。入力の全列を元の順番・元の文字列のまま左に置き、
   判定結果の列(`rt_group`、`c_s_total`、`db_s_total`、`inclusion`、`pair_evaluated`、`curation`、
