@@ -18,6 +18,10 @@ dist/
 # 設計書と実装計画(研究データの情報を含むので公開しない。手元にだけ置く)
 docs/
 
+# 認証情報などを置く環境変数ファイル(念のため)
+.env
+.env.*
+
 # OneDrive / Windows が作るファイル
 desktop.ini
 Thumbs.db
